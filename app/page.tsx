@@ -28,6 +28,7 @@ import { ResultTable } from "@/components/ResultTable";
 import { SqlEditor } from "@/components/SqlEditor";
 import { StatusCards } from "@/components/StatusCards";
 import { WatsonOrchestrateEmbeddedChat } from "@/components/WatsonOrchestrateEmbeddedChat";
+import { WhatsAppDemoPanel } from "@/components/WhatsAppDemoPanel";
 import {
   clearExecutiveReportHistory,
   readExecutiveReportHistory,
@@ -764,6 +765,7 @@ export default function Home() {
                 onClearLocalErrors={clearLocalErrors}
               />
             ) : null}
+            {interfaceSettings.showWhatsAppDemoPanel ? <WhatsAppDemoPanel /> : null}
             <InterfaceSettingsPanel
               settings={interfaceSettings}
               onSaveSettings={saveInterfaceSettings}

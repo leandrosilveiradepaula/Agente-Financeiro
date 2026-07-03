@@ -1,28 +1,31 @@
 import "dotenv/config";
 import express from "express";
-import { askDuckLakeAgent } from "./ducklake-agent-client.js";
 import {
-  formatSavedReportsList,
-  formatWhatsAppMarkdown,
-  formatWhatsAppReport,
-  normalizeText
-} from "./message-formatting.js";
-import { listReportsByUser, saveReport, storageFile } from "./report-storage.js";
+  DEMO_QUESTIONS,
+  buildWhatsAppDemoLink,
+  demoConfigFromEnv,
+  generateQrPngBuffer,
+  getDemoMessageText,
+  getDemoQuestion,
+  renderDemoHtml
+} from "./demo-qr.js";
+import { storageFile } from "./report-storage.js";
 import {
-  isAllowedNumber,
-  isAuthorizationListActive,
   maskPhoneNumber,
   normalizePhoneNumber,
   type RawBodyRequest,
   validateMetaSignature
 } from "./security.js";
-import type { DuckLakeAgentResult, SavedWhatsAppReport, WhatsAppInboundMessage } from "./types.js";
+import type { WhatsAppInboundMessage } from "./types.js";
 import { verifyWebhook } from "./webhook-verification.js";
 import { isWhatsAppConfigured, sendWhatsAppTextMessage } from "./whatsapp-client.js";
+import { handleIncomingWhatsAppText } from "./whatsapp-message-handler.js";
+import { getWhatsAppSafetyConfig } from "./whatsapp-safety.js";
+import { getWebJsStatus, startWhatsAppWebJsClient } from "./whatsapp-webjs-client.js";
 
 const app = express();
 const port = Number(process.env.WHATSAPP_PORT || 3980);
-const pendingReports = new Map<string, SavedWhatsAppReport>();
+const provider = process.env.WHATSAPP_PROVIDER || "debug";
 
 app.use(
   express.json({
@@ -33,137 +36,32 @@ app.use(
   })
 );
 
-function makePendingReport(
-  result: DuckLakeAgentResult,
-  phoneNumber: string,
-  whatsappName?: string
-): SavedWhatsAppReport {
-  const normalizedPhone = normalizePhoneNumber(phoneNumber);
-  return {
-    id: crypto.randomUUID(),
-    whatsappUserId: normalizedPhone,
-    whatsappName,
-    phoneNumber: normalizedPhone,
-    queryId: result.queryId,
-    question: result.question,
-    markdown: result.markdown,
-    summary: result.summary,
-    columns: result.columns,
-    dataPreview: result.data.slice(0, 10),
-    rowCount: result.rowCount,
-    executionTimeMs: result.executionTimeMs,
-    createdAt: new Date().toISOString()
-  };
+function firstQueryValue(value: unknown) {
+  if (Array.isArray(value)) {
+    return typeof value[0] === "string" ? value[0] : "";
+  }
+
+  return typeof value === "string" ? value : "";
 }
 
-function helpMessage() {
-  return `*Comandos disponiveis*
+function buildDemoPayload(query: Record<string, unknown>) {
+  const { phoneNumber, title, subtitle } = demoConfigFromEnv();
+  const questionId = firstQueryValue(query.questionId);
+  const customText = firstQueryValue(query.text);
+  const question = getDemoQuestion(questionId, customText);
+  const messageText = getDemoMessageText(question);
+  const url = phoneNumber ? buildWhatsAppDemoLink({ phoneNumber, text: question }) : "";
+  const search = new URLSearchParams();
 
-- Digite uma pergunta financeira
-- salvar - salva o ultimo relatorio
-- markdown - envia o markdown do ultimo relatorio
-- meus relatorios - lista relatorios salvos
-- status - mostra o status do bot
-- ajuda - mostra esta ajuda
-
-Exemplos:
-- Quais as contas que tiveram maiores estouros de orcamento no mes?
-- Qual foi a principal variacao entre orcado e realizado?
-- Monte uma tabela com os resultados do mes por marca`;
-}
-
-function statusMessage(phoneNumber: string) {
-  const endpointConfigured = Boolean(process.env.DUCKLAKE_AGENT_ENDPOINT);
-  const allowed = isAllowedNumber(phoneNumber);
-  const authorizationMode = isAuthorizationListActive() ? (allowed ? "numero autorizado" : "numero nao autorizado") : "lista livre em desenvolvimento";
-
-  return `*Status do bot*
-
-- Bot online
-- Endpoint do agente configurado: ${endpointConfigured ? "sim" : "usando padrao"}
-- WhatsApp configurado: ${isWhatsAppConfigured() ? "sim" : "nao"}
-- Storage local: ${storageFile()}
-- Autorizacao: ${authorizationMode}`;
-}
-
-function isHelpCommand(text: string) {
-  return text === "ajuda" || text === "help";
-}
-
-function isSavedReportsCommand(text: string) {
-  return text === "meus relatorios" || text === "meus relatórios";
-}
-
-async function handleCommand(text: string, from: string) {
-  if (isHelpCommand(text)) {
-    return helpMessage();
+  if (customText) {
+    search.set("text", customText);
+  } else if (questionId) {
+    search.set("questionId", questionId);
   }
 
-  if (text === "status") {
-    return statusMessage(from);
-  }
+  const qrImagePath = `/demo/qr.png${search.toString() ? `?${search.toString()}` : ""}`;
 
-  if (text === "salvar") {
-    const pending = pendingReports.get(normalizePhoneNumber(from));
-    if (!pending) {
-      return "Nao encontrei relatorio recente para salvar. Envie uma pergunta primeiro.";
-    }
-
-    await saveReport(pending);
-    return "Relatorio salvo com sucesso. Para listar, envie: meus relatorios";
-  }
-
-  if (text === "markdown") {
-    const pending = pendingReports.get(normalizePhoneNumber(from));
-    if (!pending) {
-      return "Nao encontrei relatorio recente para enviar. Envie uma pergunta primeiro.";
-    }
-
-    return formatWhatsAppMarkdown(pending.markdown);
-  }
-
-  if (isSavedReportsCommand(text)) {
-    const reports = await listReportsByUser(normalizePhoneNumber(from), 5);
-    return formatSavedReportsList(reports);
-  }
-
-  return null;
-}
-
-export async function processIncomingTextMessage(message: WhatsAppInboundMessage) {
-  const from = normalizePhoneNumber(message.from);
-  const text = normalizeText(message.text || "");
-
-  if (!isAllowedNumber(from)) {
-    return "Este numero nao esta autorizado a usar o Agente SQL Financeiro DuckLake.";
-  }
-
-  if (!text) {
-    return "Envie uma pergunta financeira em texto para iniciar.";
-  }
-
-  const commandResponse = await handleCommand(text.toLowerCase(), from);
-  if (commandResponse) {
-    return commandResponse;
-  }
-
-  const result = await askDuckLakeAgent(text);
-  const pending = makePendingReport(result, from, message.name);
-  pendingReports.set(from, pending);
-
-  console.log(
-    JSON.stringify({
-      event: "ducklake_whatsapp_report",
-      phone: maskPhoneNumber(from),
-      queryId: result.queryId,
-      intent: result.intent,
-      rowCount: result.rowCount,
-      executionTimeMs: result.executionTimeMs,
-      success: result.executeResponse.success
-    })
-  );
-
-  return formatWhatsAppReport(result);
+  return { phoneNumber, title, subtitle, question, messageText, url, qrImagePath };
 }
 
 function extractInboundMessages(payload: unknown): WhatsAppInboundMessage[] {
@@ -220,8 +118,13 @@ async function handleWebhookMessage(message: WhatsAppInboundMessage) {
       message.from,
       "Recebi sua pergunta. Vou gerar a SQL, executar a consulta e montar o relatorio executivo."
     );
-    const response = await processIncomingTextMessage(message);
-    await sendWhatsAppTextMessage(message.from, response);
+    const result = await handleIncomingWhatsAppText({
+      from: message.from,
+      text: message.text || "",
+      displayName: message.name,
+      source: "meta"
+    });
+    await sendWhatsAppTextMessage(message.from, result.response);
   } catch (error) {
     console.error(
       JSON.stringify({
@@ -255,12 +158,99 @@ app.get("/terms", (_req, res) => {
     .send("<h1>Termos</h1><p>Uso interno para consultas financeiras autorizadas. Nao envie dados fora do escopo permitido.</p>");
 });
 
+app.get("/demo", (req, res) => {
+  const payload = buildDemoPayload(req.query);
+
+  if (!payload.phoneNumber) {
+    return res
+      .status(500)
+      .type("html")
+      .send(
+        '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Demonstração WhatsApp</title></head><body><main style="font-family:system-ui;padding:32px"><h1>Número do robô não configurado.</h1><p>Configure DEMO_BOT_PHONE_NUMBER no .env do whatsapp-bot.</p></main></body></html>'
+      );
+  }
+
+  return res.type("html").send(renderDemoHtml(payload));
+});
+
+app.get("/demo/qr.png", async (req, res) => {
+  const payload = buildDemoPayload(req.query);
+
+  if (!payload.phoneNumber) {
+    return res.status(500).type("text/plain").send("Número do robô não configurado.");
+  }
+
+  const png = await generateQrPngBuffer(payload.url);
+  res.setHeader("Cache-Control", "no-store");
+  return res.type("png").send(png);
+});
+
+app.get("/demo/link", (req, res) => {
+  const payload = buildDemoPayload(req.query);
+
+  if (!payload.phoneNumber) {
+    return res.status(500).json({
+      error: "Número do robô não configurado."
+    });
+  }
+
+  return res.json({
+    url: payload.url,
+    phoneNumber: payload.phoneNumber,
+    question: payload.question
+  });
+});
+
+app.get("/demo/questions", (_req, res) => {
+  res.json(DEMO_QUESTIONS);
+});
+
 app.get("/health", (_req, res) => {
+  const webjsStatus = getWebJsStatus();
+  const safety = getWhatsAppSafetyConfig();
+
   res.json({
     status: "ok",
+    provider,
     agentEndpointConfigured: Boolean(process.env.DUCKLAKE_AGENT_ENDPOINT),
     whatsappConfigured: isWhatsAppConfigured(),
+    webjsReady: provider === "webjs" ? webjsStatus.ready : false,
+    webjsInboundEnabled: safety.inboundEnabled,
+    webjsDryRun: safety.dryRun,
+    webjsRequireTrigger: safety.requireTrigger,
+    webjsTriggerPrefix: safety.triggerPrefix,
+    webjsAllowedNumbersCount: safety.allowedNumbersCount,
     storage: storageFile()
+  });
+});
+
+app.get("/webjs/status", (_req, res) => {
+  const webjsStatus = getWebJsStatus();
+  const safety = getWhatsAppSafetyConfig();
+
+  res.json({
+    provider,
+    ready: provider === "webjs" ? webjsStatus.ready : false,
+    authenticated: provider === "webjs" ? webjsStatus.authenticated : false,
+    webjsInboundEnabled: safety.inboundEnabled,
+    webjsDryRun: safety.dryRun,
+    webjsRequireTrigger: safety.requireTrigger,
+    webjsTriggerPrefix: safety.triggerPrefix,
+    webjsAllowedNumbersCount: safety.allowedNumbersCount
+  });
+});
+
+app.get("/webjs/safety", (_req, res) => {
+  const safety = getWhatsAppSafetyConfig();
+
+  res.json({
+    provider,
+    inboundEnabled: safety.inboundEnabled,
+    dryRun: safety.dryRun,
+    requireTrigger: safety.requireTrigger,
+    triggerPrefix: safety.triggerPrefix,
+    allowedNumbersCount: safety.allowedNumbersCount,
+    ignoreGroups: safety.ignoreGroups
   });
 });
 
@@ -283,17 +273,17 @@ app.post("/debug/ask", async (req, res) => {
   try {
     const from = typeof req.body?.from === "string" ? req.body.from : "debug";
     const question = typeof req.body?.question === "string" ? req.body.question : "";
-    const response = await processIncomingTextMessage({
+    const result = await handleIncomingWhatsAppText({
       from,
-      name: "Debug",
-      type: "text",
-      text: question
+      displayName: "Debug",
+      text: question,
+      source: "debug"
     });
 
     res.json({
-      success: true,
+      success: result.success,
       from: normalizePhoneNumber(from),
-      response
+      response: result.response
     });
   } catch (error) {
     res.status(500).json({
@@ -302,6 +292,10 @@ app.post("/debug/ask", async (req, res) => {
     });
   }
 });
+
+if (provider === "webjs") {
+  startWhatsAppWebJsClient();
+}
 
 app.listen(port, () => {
   console.log(`DuckLake WhatsApp bot listening on http://localhost:${port}`);

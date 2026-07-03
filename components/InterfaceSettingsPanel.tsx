@@ -129,7 +129,8 @@ export function InterfaceSettingsPanel({
             ["pdfIncludeSql", "PDF — incluir SQL"],
             ["markdownIncludeSql", "Markdown — incluir SQL no fallback local"],
             ["showDiagnosticsPanel", "Mostrar painel de diagnóstico"],
-            ["showExecutiveReportHistory", "Mostrar histórico de relatórios"]
+            ["showExecutiveReportHistory", "Mostrar histórico de relatórios"],
+            ["showWhatsAppDemoPanel", "Mostrar painel de demonstração WhatsApp"]
           ].map(([key, label]) => (
             <label
               key={key}

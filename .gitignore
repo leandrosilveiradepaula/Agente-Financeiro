@@ -36,6 +36,10 @@ data/
 */data/
 saved-reports.json
 */saved-reports.json
+.wwebjs_auth/
+*/.wwebjs_auth/
+.wwebjs_cache/
+*/.wwebjs_cache/
 
 # local databases / temporary storage
 *.sqlite

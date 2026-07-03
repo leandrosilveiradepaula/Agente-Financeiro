@@ -6,6 +6,7 @@ export type InterfaceSettings = {
   markdownIncludeSql: boolean;
   showDiagnosticsPanel: boolean;
   showExecutiveReportHistory: boolean;
+  showWhatsAppDemoPanel: boolean;
   defaultResultMode: "auto" | "manual";
 };
 
@@ -19,6 +20,7 @@ const DEFAULT_INTERFACE_SETTINGS: InterfaceSettings = {
   markdownIncludeSql: true,
   showDiagnosticsPanel: true,
   showExecutiveReportHistory: true,
+  showWhatsAppDemoPanel: true,
   defaultResultMode: "auto"
 };
 
@@ -68,6 +70,10 @@ function normalizeSettings(value: unknown): InterfaceSettings {
     showExecutiveReportHistory: booleanValue(
       record.showExecutiveReportHistory,
       DEFAULT_INTERFACE_SETTINGS.showExecutiveReportHistory
+    ),
+    showWhatsAppDemoPanel: booleanValue(
+      record.showWhatsAppDemoPanel,
+      DEFAULT_INTERFACE_SETTINGS.showWhatsAppDemoPanel
     ),
     defaultResultMode: record.defaultResultMode === "manual" ? "manual" : "auto"
   };
