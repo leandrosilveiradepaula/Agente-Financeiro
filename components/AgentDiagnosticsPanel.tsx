@@ -121,6 +121,7 @@ export function AgentDiagnosticsPanel({
   const [copyError, setCopyError] = useState("");
   const [localStorageStatus, setLocalStorageStatus] = useState<DiagnosticStatus>("attention");
   const response = execution.response;
+  const hasCurrentExecution = Boolean(response);
   const backendSummary = response?.relatorio_executivo ?? response?.executive_summary ?? null;
   const currentIntent =
     backendSummary?.intent ||
@@ -197,6 +198,43 @@ export function AgentDiagnosticsPanel({
     } catch {
       setCopyError("Não foi possível copiar o diagnóstico.");
     }
+  }
+
+  if (!hasCurrentExecution) {
+    return (
+      <section className="rounded-md border border-slate-200 bg-white p-4 shadow-soft">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <HeartPulse className="h-5 w-5 text-lake" aria-hidden="true" />
+            <h2 className="text-lg font-semibold text-ink">Diagnostico do agente</h2>
+          </div>
+          <span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800">
+            {interfaceVersion}
+          </span>
+        </div>
+
+        <div className="space-y-3 text-sm">
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-semibold uppercase text-slate-500">Baseline</p>
+            <p className="mt-1 text-sm font-semibold text-ink">{baseline}</p>
+            <p className="mt-1 text-xs text-steel">Ambiente: navegador local</p>
+          </div>
+
+          <div className="rounded-md border border-slate-200 bg-white px-3 py-3 text-sm font-medium text-steel">
+            Nenhuma execucao carregada para diagnostico.
+          </div>
+
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase text-slate-500">Historico local</p>
+            <div className="grid gap-2">
+              <CheckRow label={`queries salvas: ${queryHistoryCount}`} status="ok" />
+              <CheckRow label={`relatorios salvos: ${executiveReportHistoryCount}`} status="ok" />
+              <CheckRow label="localStorage disponivel" status={localStorageStatus} />
+            </div>
+          </div>
+        </div>
+      </section>
+    );
   }
 
   return (

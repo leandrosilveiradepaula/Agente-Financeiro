@@ -50,7 +50,13 @@ export function SqlEditor({ sql, onSqlChange }: SqlEditorProps) {
         </button>
       </div>
 
-      <div className="min-h-72 overflow-hidden rounded-md border border-slate-800 bg-slate-950">
+      <div
+        className={`overflow-hidden rounded-md border ${
+          sql
+            ? "min-h-72 border-slate-800 bg-slate-950"
+            : "min-h-40 border-dashed border-slate-300 bg-slate-50"
+        }`}
+      >
         {sql ? (
           <Editor
             height="320px"
@@ -69,7 +75,7 @@ export function SqlEditor({ sql, onSqlChange }: SqlEditorProps) {
             }}
           />
         ) : (
-          <div className="flex min-h-60 items-center justify-center text-center text-slate-400">
+          <div className="flex min-h-40 items-center justify-center px-4 text-center text-sm font-medium text-steel">
             Digite uma pergunta ou escolha uma pergunta padrão para gerar a SQL.
           </div>
         )}

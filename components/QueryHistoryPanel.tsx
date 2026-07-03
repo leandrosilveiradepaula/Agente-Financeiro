@@ -66,7 +66,7 @@ export function QueryHistoryPanel({
       </div>
 
       {items.length ? (
-        <div className="flex max-h-[520px] flex-col gap-2 overflow-auto pr-1">
+        <div className="flex max-h-[360px] flex-col gap-2 overflow-auto pr-1">
           {items.map((item) => (
             <div
               key={item.id}

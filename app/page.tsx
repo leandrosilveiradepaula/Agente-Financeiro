@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   XCircle
 } from "lucide-react";
+import { AccordionSection } from "@/components/AccordionSection";
 import { AgentDiagnosticsPanel } from "@/components/AgentDiagnosticsPanel";
 import { BenchmarkHomologationPanel } from "@/components/BenchmarkHomologationPanel";
 import { ErrorMessage } from "@/components/ErrorMessage";
@@ -27,7 +28,6 @@ import { ResultModeTabs, type ResultMode } from "@/components/ResultModeTabs";
 import { ResultTable } from "@/components/ResultTable";
 import { SqlEditor } from "@/components/SqlEditor";
 import { StatusCards } from "@/components/StatusCards";
-import { WatsonOrchestrateEmbeddedChat } from "@/components/WatsonOrchestrateEmbeddedChat";
 import { WhatsAppDemoPanel } from "@/components/WhatsAppDemoPanel";
 import {
   clearExecutiveReportHistory,
@@ -68,7 +68,7 @@ type ExecutionState = {
   source: "automatico" | "manual" | null;
 };
 
-const INTERFACE_VERSION = "interface-v2.0.13";
+const INTERFACE_VERSION = "interface-v2.2.9";
 const INTERFACE_BASELINE = "v2.0.13 — Central de configurações locais da interface";
 
 function statusTone(value: string): "neutral" | "success" | "warning" | "error" {
@@ -692,7 +692,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen px-4 py-5 text-ink sm:px-6 lg:px-8">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-6">
         <header className="flex flex-col justify-between gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-center">
           <div>
             <div className="flex items-center gap-3 text-sm font-semibold text-lake">
@@ -727,8 +727,8 @@ export default function Home() {
           </div>
         </header>
 
-        <section className="grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.35fr)]">
-          <div className="flex flex-col gap-5">
+        <section className="grid gap-6 xl:grid-cols-[400px_minmax(0,1fr)]">
+          <div className="flex min-w-0 flex-col gap-5 xl:sticky xl:top-5 xl:max-h-[calc(100vh-2.5rem)] xl:overflow-auto xl:pr-1">
             <QuestionInput
               canSubmit={canPrepareGeneration}
               isLoading={generation.isLoading}
@@ -750,31 +750,53 @@ export default function Home() {
                 onClearHistory={clearExecutiveReports}
               />
             ) : null}
-            {interfaceSettings.showDiagnosticsPanel ? (
-              <AgentDiagnosticsPanel
-                interfaceVersion={INTERFACE_VERSION}
-                baseline={INTERFACE_BASELINE}
-                agentVersion={AGENT_VERSION}
-                generation={generation}
-                execution={execution}
-                metadata={resultMetadata}
-                queryHistoryCount={historyItems.length}
-                executiveReportHistoryCount={executiveReportHistory.length}
-                lastExecutiveReport={executiveReportHistory[0] ?? null}
-                executiveSummary={executiveSummary}
-                onClearLocalErrors={clearLocalErrors}
-              />
+            {interfaceSettings.showWhatsAppDemoPanel ? (
+              <AccordionSection
+                title="Demonstração WhatsApp"
+                summary="Status do bot, segurança WebJS, QR Code e link wa.me"
+              >
+                <WhatsAppDemoPanel />
+              </AccordionSection>
             ) : null}
-            {interfaceSettings.showWhatsAppDemoPanel ? <WhatsAppDemoPanel /> : null}
-            <InterfaceSettingsPanel
-              settings={interfaceSettings}
-              onSaveSettings={saveInterfaceSettings}
-              onResetSettings={restoreInterfaceSettings}
-            />
-            <BenchmarkHomologationPanel baseline={INTERFACE_BASELINE} />
+            <AccordionSection
+              title="Configurações da interface"
+              summary="PDF, Markdown, modo de resultado e painéis visíveis"
+            >
+              <InterfaceSettingsPanel
+                settings={interfaceSettings}
+                onSaveSettings={saveInterfaceSettings}
+                onResetSettings={restoreInterfaceSettings}
+              />
+            </AccordionSection>
+            {interfaceSettings.showDiagnosticsPanel ? (
+              <AccordionSection
+                title="Diagnóstico do agente"
+                summary="Contrato backend, histórico local e erros da execução atual"
+              >
+                <AgentDiagnosticsPanel
+                  interfaceVersion={INTERFACE_VERSION}
+                  baseline={INTERFACE_BASELINE}
+                  agentVersion={AGENT_VERSION}
+                  generation={generation}
+                  execution={execution}
+                  metadata={resultMetadata}
+                  queryHistoryCount={historyItems.length}
+                  executiveReportHistoryCount={executiveReportHistory.length}
+                  lastExecutiveReport={executiveReportHistory[0] ?? null}
+                  executiveSummary={executiveSummary}
+                  onClearLocalErrors={clearLocalErrors}
+                />
+              </AccordionSection>
+            ) : null}
+            <AccordionSection
+              title="Benchmark e homologação"
+              summary="Casos homologados e execução de benchmark local"
+            >
+              <BenchmarkHomologationPanel baseline={INTERFACE_BASELINE} />
+            </AccordionSection>
           </div>
 
-          <div className="flex flex-col gap-5">
+          <div className="flex min-w-0 flex-col gap-5">
             <StatusCards items={statusItems} />
 
             {generation.isLoading ? <LoadingState message="Gerando SQL via n8n..." /> : null}
@@ -903,8 +925,6 @@ export default function Home() {
             </section>
           </div>
         </section>
-
-        <WatsonOrchestrateEmbeddedChat />
       </div>
     </main>
   );
