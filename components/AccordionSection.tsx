@@ -6,7 +6,7 @@ import { useState } from "react";
 
 type AccordionSectionProps = {
   title: string;
-  summary?: string;
+  summary?: ReactNode;
   defaultOpen?: boolean;
   children: ReactNode;
 };
@@ -29,9 +29,7 @@ export function AccordionSection({
       >
         <span className="min-w-0">
           <span className="block text-sm font-semibold text-ink">{title}</span>
-          {summary ? (
-            <span className="mt-0.5 block truncate text-xs font-medium text-steel">{summary}</span>
-          ) : null}
+          {summary ? <span className="mt-0.5 block text-xs font-medium text-steel">{summary}</span> : null}
         </span>
         <ChevronDown
           className={`h-4 w-4 flex-none text-slate-500 transition ${open ? "rotate-180" : ""}`}

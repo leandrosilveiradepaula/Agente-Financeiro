@@ -28,6 +28,7 @@ import { ResultModeTabs, type ResultMode } from "@/components/ResultModeTabs";
 import { ResultTable } from "@/components/ResultTable";
 import { SqlEditor } from "@/components/SqlEditor";
 import { StatusCards } from "@/components/StatusCards";
+import { WhatsAppOperationalSummary } from "@/components/WhatsAppOperationalSummary";
 import { WhatsAppDemoPanel } from "@/components/WhatsAppDemoPanel";
 import {
   clearExecutiveReportHistory,
@@ -68,8 +69,8 @@ type ExecutionState = {
   source: "automatico" | "manual" | null;
 };
 
-const INTERFACE_VERSION = "interface-v2.2.9";
-const INTERFACE_BASELINE = "v2.0.13 — Central de configurações locais da interface";
+const INTERFACE_VERSION = "interface-v2.2.10";
+const INTERFACE_BASELINE = "v2.2.10 — Painéis operacionais restaurados";
 
 function statusTone(value: string): "neutral" | "success" | "warning" | "error" {
   const normalized = value.toLowerCase();
@@ -728,7 +729,7 @@ export default function Home() {
         </header>
 
         <section className="grid gap-6 xl:grid-cols-[400px_minmax(0,1fr)]">
-          <div className="flex min-w-0 flex-col gap-5 xl:sticky xl:top-5 xl:max-h-[calc(100vh-2.5rem)] xl:overflow-auto xl:pr-1">
+          <div className="flex min-w-0 flex-col gap-5">
             <QuestionInput
               canSubmit={canPrepareGeneration}
               isLoading={generation.isLoading}
@@ -750,28 +751,41 @@ export default function Home() {
                 onClearHistory={clearExecutiveReports}
               />
             ) : null}
-            {interfaceSettings.showWhatsAppDemoPanel ? (
+            <section className="space-y-3">
+              <div className="rounded-md border border-slate-200 bg-white px-4 py-3 shadow-soft">
+                <h2 className="text-base font-semibold text-ink">Ferramentas operacionais</h2>
+                <p className="mt-1 text-xs font-medium text-steel">
+                  Painéis auxiliares recolhidos para manter a tela principal limpa.
+                </p>
+              </div>
+
               <AccordionSection
                 title="Demonstração WhatsApp"
-                summary="Status do bot, segurança WebJS, QR Code e link wa.me"
+                summary={<WhatsAppOperationalSummary />}
               >
                 <WhatsAppDemoPanel />
               </AccordionSection>
-            ) : null}
-            <AccordionSection
-              title="Configurações da interface"
-              summary="PDF, Markdown, modo de resultado e painéis visíveis"
-            >
-              <InterfaceSettingsPanel
-                settings={interfaceSettings}
-                onSaveSettings={saveInterfaceSettings}
-                onResetSettings={restoreInterfaceSettings}
-              />
-            </AccordionSection>
-            {interfaceSettings.showDiagnosticsPanel ? (
+
+              <AccordionSection
+                title="Configurações da interface"
+                summary="Preferências locais da interface"
+              >
+                <InterfaceSettingsPanel
+                  settings={interfaceSettings}
+                  onSaveSettings={saveInterfaceSettings}
+                  onResetSettings={restoreInterfaceSettings}
+                />
+              </AccordionSection>
+
               <AccordionSection
                 title="Diagnóstico do agente"
-                summary="Contrato backend, histórico local e erros da execução atual"
+                summary={
+                  execution.response
+                    ? execution.response.success
+                      ? `Execução OK • ${execution.response.row_count} linhas`
+                      : "Execução com erro"
+                    : "Sem execução atual"
+                }
               >
                 <AgentDiagnosticsPanel
                   interfaceVersion={INTERFACE_VERSION}
@@ -787,13 +801,11 @@ export default function Home() {
                   onClearLocalErrors={clearLocalErrors}
                 />
               </AccordionSection>
-            ) : null}
-            <AccordionSection
-              title="Benchmark e homologação"
-              summary="Casos homologados e execução de benchmark local"
-            >
-              <BenchmarkHomologationPanel baseline={INTERFACE_BASELINE} />
-            </AccordionSection>
+
+              <AccordionSection title="Benchmark e homologação" summary="5 casos homologados">
+                <BenchmarkHomologationPanel baseline={INTERFACE_BASELINE} />
+              </AccordionSection>
+            </section>
           </div>
 
           <div className="flex min-w-0 flex-col gap-5">
