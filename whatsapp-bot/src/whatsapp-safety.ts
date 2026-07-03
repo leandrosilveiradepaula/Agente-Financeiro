@@ -1,5 +1,3 @@
-import { normalizePhoneNumber } from "./security.js";
-
 export type WhatsAppSafetyReason =
   | "inbound_disabled"
   | "dry_run"
@@ -13,6 +11,8 @@ export type SafetyDecision = {
   allowed: boolean;
   reason?: WhatsAppSafetyReason;
   sanitizedText?: string;
+  matchedCandidate?: string;
+  normalizedCandidates?: string[];
 };
 
 export type WhatsAppSafetyConfig = {
@@ -36,10 +36,28 @@ function triggerPrefix() {
   return (process.env.WHATSAPP_TRIGGER_PREFIX || "AGENTE").trim() || "AGENTE";
 }
 
+export function normalizePhoneCandidate(value: string) {
+  return String(value)
+    .replace(/@c\.us$/i, "")
+    .replace(/@s\.whatsapp\.net$/i, "")
+    .replace(/@lid$/i, "")
+    .replace(/\D/g, "");
+}
+
+export function normalizePhoneCandidates(values: Array<string | undefined | null>) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => (value ? normalizePhoneCandidate(value) : ""))
+        .filter(Boolean)
+    )
+  );
+}
+
 export function getAllowedWebJsNumbers() {
   return (process.env.WHATSAPP_ALLOWED_NUMBERS || "")
     .split(",")
-    .map((item) => normalizePhoneNumber(item))
+    .map((item) => normalizePhoneCandidate(item))
     .filter(Boolean);
 }
 
@@ -91,6 +109,7 @@ function stripTriggerPrefix(text: string, prefix: string) {
 export function evaluateWhatsAppSafety(input: {
   source: "webjs" | "debug" | "meta";
   from: string;
+  senderCandidates?: Array<string | undefined | null>;
   text: string;
   isGroup?: boolean;
 }): SafetyDecision {
@@ -116,22 +135,23 @@ export function evaluateWhatsAppSafety(input: {
     return { allowed: false, reason: "empty_message" };
   }
 
-  const from = normalizePhoneNumber(input.from);
+  const normalizedCandidates = normalizePhoneCandidates([input.from, ...(input.senderCandidates ?? [])]);
   const allowedNumbers = getAllowedWebJsNumbers();
+  const matchedCandidate = normalizedCandidates.find((candidate) => allowedNumbers.includes(candidate));
 
-  if (!allowedNumbers.length || !allowedNumbers.includes(from)) {
-    return { allowed: false, reason: "not_allowed_number" };
+  if (!allowedNumbers.length || !matchedCandidate) {
+    return { allowed: false, reason: "not_allowed_number", normalizedCandidates };
   }
 
   if (config.requireTrigger) {
     const sanitizedText = stripTriggerPrefix(text, config.triggerPrefix);
 
     if (!sanitizedText) {
-      return { allowed: false, reason: "missing_trigger_prefix" };
+      return { allowed: false, reason: "missing_trigger_prefix", normalizedCandidates, matchedCandidate };
     }
 
-    return { allowed: true, sanitizedText };
+    return { allowed: true, sanitizedText, normalizedCandidates, matchedCandidate };
   }
 
-  return { allowed: true, sanitizedText: text };
+  return { allowed: true, sanitizedText: text, normalizedCandidates, matchedCandidate };
 }

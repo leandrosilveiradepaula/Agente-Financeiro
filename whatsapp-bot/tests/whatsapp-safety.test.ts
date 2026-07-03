@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   applyWhatsAppTriggerPrefix,
   evaluateWhatsAppSafety,
-  getWhatsAppSafetyConfig
+  getWhatsAppSafetyConfig,
+  normalizePhoneCandidate
 } from "../src/whatsapp-safety.js";
 
 afterEach(() => {
@@ -46,7 +47,7 @@ describe("WhatsApp WebJS safety", () => {
         from: "5551999999999",
         text: "AGENTE Pergunta"
       })
-    ).toEqual({ allowed: false, reason: "not_allowed_number" });
+    ).toMatchObject({ allowed: false, reason: "not_allowed_number" });
 
     expect(
       evaluateWhatsAppSafety({
@@ -54,7 +55,7 @@ describe("WhatsApp WebJS safety", () => {
         from: "5551888888888",
         text: "Pergunta"
       })
-    ).toEqual({ allowed: false, reason: "missing_trigger_prefix" });
+    ).toMatchObject({ allowed: false, reason: "missing_trigger_prefix" });
 
     expect(
       evaluateWhatsAppSafety({
@@ -62,7 +63,67 @@ describe("WhatsApp WebJS safety", () => {
         from: "5551888888888",
         text: "AGENTE Pergunta"
       })
-    ).toEqual({ allowed: true, sanitizedText: "Pergunta" });
+    ).toMatchObject({ allowed: true, sanitizedText: "Pergunta", matchedCandidate: "5551888888888" });
+  });
+
+  it("matches allowlist using message.from candidate", () => {
+    process.env.WHATSAPP_WEBJS_ENABLE_INBOUND = "true";
+    process.env.WHATSAPP_ALLOWED_NUMBERS = "+55 (51) 88888-8888";
+    process.env.WHATSAPP_REQUIRE_TRIGGER = "true";
+
+    expect(
+      evaluateWhatsAppSafety({
+        source: "webjs",
+        from: "5551888888888@c.us",
+        text: "AGENTE Pergunta"
+      })
+    ).toMatchObject({ allowed: true, matchedCandidate: "5551888888888" });
+  });
+
+  it("matches allowlist using contact.number candidate", () => {
+    process.env.WHATSAPP_WEBJS_ENABLE_INBOUND = "true";
+    process.env.WHATSAPP_ALLOWED_NUMBERS = "5551888888888";
+
+    expect(
+      evaluateWhatsAppSafety({
+        source: "webjs",
+        from: "7860123415@lid",
+        senderCandidates: ["7860123415@lid", "5551888888888"],
+        text: "AGENTE Pergunta"
+      })
+    ).toMatchObject({ allowed: true, matchedCandidate: "5551888888888" });
+  });
+
+  it("matches allowlist using contact id user candidate", () => {
+    process.env.WHATSAPP_WEBJS_ENABLE_INBOUND = "true";
+    process.env.WHATSAPP_ALLOWED_NUMBERS = "5551999999999";
+
+    expect(
+      evaluateWhatsAppSafety({
+        source: "webjs",
+        from: "7860123415@lid",
+        senderCandidates: ["7860123415@lid", "5551999999999@s.whatsapp.net"],
+        text: "AGENTE Pergunta"
+      })
+    ).toMatchObject({ allowed: true, matchedCandidate: "5551999999999" });
+  });
+
+  it("fails allowlist when no candidate matches", () => {
+    process.env.WHATSAPP_WEBJS_ENABLE_INBOUND = "true";
+    process.env.WHATSAPP_ALLOWED_NUMBERS = "5551888888888";
+
+    expect(
+      evaluateWhatsAppSafety({
+        source: "webjs",
+        from: "7860123415@lid",
+        senderCandidates: ["7860123415@lid", "5551999999999"],
+        text: "AGENTE Pergunta"
+      })
+    ).toMatchObject({
+      allowed: false,
+      reason: "not_allowed_number",
+      normalizedCandidates: ["7860123415", "5551999999999"]
+    });
   });
 
   it("ignores groups by default", () => {
@@ -85,5 +146,11 @@ describe("WhatsApp WebJS safety", () => {
 
     expect(applyWhatsAppTriggerPrefix("Pergunta")).toBe("AGENTE Pergunta");
     expect(applyWhatsAppTriggerPrefix("AGENTE Pergunta")).toBe("AGENTE Pergunta");
+  });
+
+  it("normalizes WebJS phone candidates", () => {
+    expect(normalizePhoneCandidate("5551888888888@c.us")).toBe("5551888888888");
+    expect(normalizePhoneCandidate("5551888888888@s.whatsapp.net")).toBe("5551888888888");
+    expect(normalizePhoneCandidate("7860123415@lid")).toBe("7860123415");
   });
 });

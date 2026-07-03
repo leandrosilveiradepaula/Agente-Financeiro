@@ -5,6 +5,7 @@ import { maskPhoneNumber, normalizePhoneNumber } from "./security.js";
 import {
   evaluateWhatsAppSafety,
   getWhatsAppSafetyConfig,
+  normalizePhoneCandidates,
   type WhatsAppSafetyConfig
 } from "./whatsapp-safety.js";
 
@@ -34,53 +35,78 @@ export function getWebJsStatus(): WebJsState {
   return { ...state, safety: { ...state.safety } };
 }
 
-function logBlockedMessage(phone: string, reason: string) {
+function logBlockedMessage(phone: string, reason: string, candidates: string[] = []) {
   console.log(
     JSON.stringify({
       event: "ducklake_webjs_message_blocked",
       phone: maskPhoneNumber(phone),
-      reason
+      reason,
+      candidateCount: candidates.length,
+      candidateMasks: candidates.map(maskPhoneNumber)
     })
   );
 }
 
-async function getDisplayName(message: Message) {
+function logAllowedMessage(phone: string) {
+  console.log(
+    JSON.stringify({
+      event: "ducklake_webjs_message_allowed",
+      phone: maskPhoneNumber(phone),
+      reason: "allowed_number_and_trigger"
+    })
+  );
+}
+
+async function getContactInfo(message: Message) {
   try {
     const contact = await message.getContact();
-    return contact.pushname || contact.name || undefined;
+    const idUser = typeof contact.id?.user === "string" ? contact.id.user : undefined;
+    const number = typeof contact.number === "string" ? contact.number : undefined;
+
+    return {
+      displayName: contact.pushname || contact.name || undefined,
+      senderCandidates: [message.from, message.author, idUser, number]
+    };
   } catch {
-    return undefined;
+    return {
+      displayName: undefined,
+      senderCandidates: [message.from, message.author]
+    };
   }
 }
 
 async function handleWebJsMessage(message: Message) {
   if (message.fromMe) {
-    logBlockedMessage(message.from, "from_me_ignored");
+    logBlockedMessage(message.from, "from_me_ignored", normalizePhoneCandidates([message.from, message.author]));
     return;
   }
 
   const isGroup = message.from.endsWith("@g.us");
   const text = message.body?.trim();
+  const contactInfo = await getContactInfo(message);
+  const senderCandidates = normalizePhoneCandidates(contactInfo.senderCandidates);
+  const primaryPhone = senderCandidates[0] || normalizePhoneNumber(message.from);
 
   const safety = evaluateWhatsAppSafety({
     source: "webjs",
-    from: message.from,
+    from: primaryPhone,
+    senderCandidates: contactInfo.senderCandidates,
     text: text || "",
     isGroup
   });
 
   if (!safety.allowed) {
-    logBlockedMessage(message.from, safety.reason || "not_allowed_number");
+    logBlockedMessage(primaryPhone, safety.reason || "not_allowed_number", safety.normalizedCandidates ?? senderCandidates);
     return;
   }
 
   try {
-    const displayName = await getDisplayName(message);
-    const phoneNumber = normalizePhoneNumber(message.from);
+    logAllowedMessage(safety.matchedCandidate || primaryPhone);
+    const phoneNumber = safety.matchedCandidate || primaryPhone;
     const result = await handleIncomingWhatsAppText({
       from: phoneNumber,
       text: safety.sanitizedText || "",
-      displayName,
+      displayName: contactInfo.displayName,
       source: "webjs"
     });
 
@@ -88,7 +114,7 @@ async function handleWebJsMessage(message: Message) {
       console.log(
         JSON.stringify({
           event: "ducklake_webjs_dry_run",
-          phone: maskPhoneNumber(message.from),
+          phone: maskPhoneNumber(phoneNumber),
           responsePreview: result.response.slice(0, 240)
         })
       );
@@ -100,7 +126,7 @@ async function handleWebJsMessage(message: Message) {
     console.error(
       JSON.stringify({
         event: "ducklake_webjs_error",
-        phone: maskPhoneNumber(message.from),
+        phone: maskPhoneNumber(primaryPhone),
         error: error instanceof Error ? error.message : "Erro desconhecido"
       })
     );

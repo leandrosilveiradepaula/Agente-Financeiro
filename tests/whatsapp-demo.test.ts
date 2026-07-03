@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildWhatsAppBotEndpoint,
   buildWhatsAppDemoPath,
-  getWhatsAppBotUrl
+  getWhatsAppBotUrl,
+  getWhatsAppSafetyMode,
+  getWhatsAppSafetySummary
 } from "@/lib/whatsapp-demo";
 
 describe("whatsapp demo helpers", () => {
@@ -20,5 +22,36 @@ describe("whatsapp demo helpers", () => {
     expect(buildWhatsAppBotEndpoint("http://localhost:3980", "/demo/link", "resultado_marcas")).toBe(
       "http://localhost:3980/demo/link?questionId=resultado_marcas"
     );
+  });
+
+  it("classifies WebJS safety modes", () => {
+    expect(
+      getWhatsAppSafetyMode({
+        inboundEnabled: false,
+        dryRun: true,
+        requireTrigger: true,
+        triggerPrefix: "AGENTE",
+        allowedNumbersCount: 0,
+        ignoreGroups: true
+      })
+    ).toBe("seguro");
+
+    expect(
+      getWhatsAppSafetyMode({
+        inboundEnabled: true,
+        dryRun: false,
+        allowedNumbersCount: 2
+      })
+    ).toBe("demo_controlada");
+
+    expect(
+      getWhatsAppSafetyMode({
+        inboundEnabled: true,
+        dryRun: false,
+        allowedNumbersCount: 0
+      })
+    ).toBe("risco");
+
+    expect(getWhatsAppSafetySummary(null)).toBe("Status de segurança indisponível.");
   });
 });

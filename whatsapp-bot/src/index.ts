@@ -1,5 +1,7 @@
 import "dotenv/config";
+import cors from "cors";
 import express from "express";
+import { createCorsOptions } from "./cors-config.js";
 import {
   DEMO_QUESTIONS,
   buildWhatsAppDemoLink,
@@ -26,6 +28,9 @@ import { getWebJsStatus, startWhatsAppWebJsClient } from "./whatsapp-webjs-clien
 const app = express();
 const port = Number(process.env.WHATSAPP_PORT || 3980);
 const provider = process.env.WHATSAPP_PROVIDER || "debug";
+
+app.use(cors(createCorsOptions()));
+app.options("*", cors(createCorsOptions()));
 
 app.use(
   express.json({

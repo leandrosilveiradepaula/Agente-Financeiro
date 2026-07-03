@@ -24,6 +24,7 @@ Copie `.env.example` para `.env` e preencha:
 ```env
 WHATSAPP_PORT=3980
 WHATSAPP_PROVIDER=debug
+CORS_ALLOWED_ORIGINS=https://agente-financeiro-dusky.vercel.app,http://localhost:3000,http://localhost:3001
 WHATSAPP_WEBJS_ENABLE_INBOUND=false
 WHATSAPP_WEBJS_DRY_RUN=true
 WHATSAPP_ALLOWED_NUMBERS=
@@ -57,6 +58,14 @@ ALLOWED_WHATSAPP_NUMBERS=5511999999999,5511888888888
 ```
 
 Se vazio, todos os numeros sao permitidos durante desenvolvimento.
+
+`CORS_ALLOWED_ORIGINS` controla quais frontends podem consumir os endpoints publicos de demonstracao do bot. Chamadas sem `Origin`, como `curl` e healthchecks, continuam permitidas. Em desenvolvimento, origens `localhost` tambem sao aceitas.
+
+Exemplo:
+
+```env
+CORS_ALLOWED_ORIGINS=https://agente-financeiro-dusky.vercel.app,http://localhost:3000,http://localhost:3001
+```
 
 `WHATSAPP_PROVIDER` controla o adaptador ativo:
 
