@@ -7,7 +7,19 @@ export type GenerateSqlResponse = {
   validation_status: string;
   sql: string;
   raw: unknown;
+  cache?: SqlGenerationCacheMetadata;
   error?: string;
+};
+
+export type SqlGenerationCacheMetadata = {
+  enabled: boolean;
+  hit: boolean;
+  source: string;
+  cache_key?: string;
+  cache_id?: string;
+  status?: string;
+  hit_count?: number;
+  created_at?: string;
 };
 
 export type ResultRow = Record<string, string | number | boolean | null>;
@@ -53,6 +65,10 @@ export type QueryHistoryItem = {
   pdfExported?: boolean;
   pdfExportedAt?: string;
   query_id?: string;
+  cache_enabled?: boolean;
+  cache_hit?: boolean;
+  cache_source?: string;
+  cache_status?: string;
 };
 
 export type ExecutiveReportHistoryItem = {

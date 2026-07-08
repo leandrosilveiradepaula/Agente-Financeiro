@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { N8N_WATSON_ORCHESTRATE_ENDPOINT } from "@/lib/n8n-endpoint";
+import { requireAgentSession } from "@/lib/server-auth";
 import { logger } from "@/lib/server-logger";
 import type { ExecuteWatsonResponse } from "@/lib/types";
 import { normalizeWatsonResult } from "@/lib/watson-result-normalization";
+
+export const runtime = "nodejs";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -34,6 +37,22 @@ function errorResponse(message: string, status: number): NextResponse<ExecuteWat
 
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
+  const { session, response: unauthorizedResponse } = await requireAgentSession();
+
+  if (unauthorizedResponse || !session) {
+    logger.warn("execute_watson.unauthorized", { requestId });
+    return (
+      unauthorizedResponse ??
+      NextResponse.json(
+        {
+          success: false,
+          error: "unauthorized"
+        },
+        { status: 401 }
+      )
+    );
+  }
+
   let body: unknown;
 
   try {
@@ -75,7 +94,13 @@ export async function POST(request: Request) {
         modo: "executar_sql",
         pergunta,
         limit: 100,
-        sql
+        sql,
+        request_id: requestId,
+        user_id: session.userId,
+        user_email: session.email,
+        user_name: session.name,
+        user_profile: session.userProfile,
+        auth_source: "database_session"
       }),
       cache: "no-store"
     });
@@ -102,7 +127,7 @@ export async function POST(request: Request) {
         {
           ...normalized,
           success: false,
-          error: `Webhook n8n retornou status ${webhookResponse.status}.`
+          error: `O serviço de orquestração retornou status ${webhookResponse.status}.`
         },
         { status: webhookResponse.status }
       );
@@ -122,7 +147,7 @@ export async function POST(request: Request) {
       error: error instanceof Error ? error.name : "UnknownError"
     });
     return errorResponse(
-      "Erro ao executar no Watson via n8n. Verifique conectividade e logs do servidor.",
+      "Erro ao executar no Watson via serviço de orquestração. Verifique conectividade e logs do servidor.",
       502
     );
   }

@@ -125,7 +125,7 @@ export function ExecutiveSummary({
 
       <p className="mt-4 text-xs font-medium text-slate-500">
         {hasBackendSummary
-          ? "Resumo executivo gerado pelo backend/n8n."
+          ? "Resumo executivo gerado pelo serviço de orquestração."
           : "Resumo gerado automaticamente a partir dos dados retornados."}
       </p>
     </section>

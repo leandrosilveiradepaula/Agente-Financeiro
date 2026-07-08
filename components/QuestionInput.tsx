@@ -4,7 +4,9 @@ type QuestionInputProps = {
   question: string;
   canSubmit: boolean;
   isLoading: boolean;
+  useSqlCache: boolean;
   onQuestionChange: (value: string) => void;
+  onUseSqlCacheChange: (value: boolean) => void;
   onSubmit: () => void;
 };
 
@@ -12,7 +14,9 @@ export function QuestionInput({
   question,
   canSubmit,
   isLoading,
+  useSqlCache,
   onQuestionChange,
+  onUseSqlCacheChange,
   onSubmit
 }: QuestionInputProps) {
   return (
@@ -34,9 +38,25 @@ export function QuestionInput({
         className="min-h-40 w-full resize-y rounded-md border border-slate-300 bg-white p-3 text-base leading-6 text-ink placeholder:text-slate-400"
       />
 
+      <label className="mt-3 flex items-start justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-ink">Usar cache de SQL</span>
+          <span className="mt-1 block text-xs leading-5 text-steel">
+            Reaproveita SQLs aprovadas para perguntas já conhecidas. Desative para demonstrar a
+            geração pela IA.
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          checked={useSqlCache}
+          onChange={(event) => onUseSqlCacheChange(event.target.checked)}
+          className="mt-1 h-5 w-5 shrink-0 accent-teal-700"
+        />
+      </label>
+
       <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="min-w-0 text-sm text-steel">
-          A pergunta será enviada ao n8n por uma rota interna segura.
+          A pergunta será enviada à orquestração Watson por uma rota interna segura.
         </p>
         <button
           type="button"

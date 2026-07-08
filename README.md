@@ -1,6 +1,6 @@
-# Agente SQL Financeiro DuckLake
+﻿# Agente SQL Financeiro DuckLake
 
-Interface web corporativa para gerar, revisar, copiar e analisar SQL financeiro DuckLake integrado ao n8n.
+Interface web corporativa para gerar, revisar, copiar e analisar SQL financeiro DuckLake integrado ao Watson Orchestration.
 
 Versão da interface: `interface-v1.0-demo`
 
@@ -8,7 +8,7 @@ Versão do agente: `v2.0.6.2-benchmark-30-30-stable`
 
 ## Status Atual
 
-- Geração de SQL e execução Watson pelo mesmo webhook n8n.
+- Geração de SQL e execução Watson pela camada de orquestração.
 - Revisão e cópia de SQL no Monaco Editor.
 - Modo manual para colar retorno JSON do Watson.
 - Tabela de resultados com filtro e exportação CSV.
@@ -20,7 +20,7 @@ Versão do agente: `v2.0.6.2-benchmark-30-30-stable`
 
 - Node.js 20 ou superior
 - npm
-- Webhook n8n unificado configurado
+- Serviço de orquestração unificado configurado
 
 ## Instalação
 
