@@ -943,6 +943,15 @@ export default function Home() {
               ) : null}
               {authenticatedUser?.profile === "admin" ? (
                 <Link
+                  href="/admin/runs"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-ink shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
+                >
+                  <BarChart3 className="h-4 w-4" aria-hidden="true" />
+                  Histórico
+                </Link>
+              ) : null}
+              {authenticatedUser?.profile === "admin" ? (
+                <Link
                   href="/admin/users"
                   className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-800 shadow-sm transition hover:border-blue-300 hover:bg-blue-100"
                 >

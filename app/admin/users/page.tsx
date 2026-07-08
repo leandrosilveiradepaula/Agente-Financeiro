@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   ArrowLeft,
+  Database,
   Eye,
   KeyRound,
   Lock,
@@ -447,6 +448,13 @@ export default function AdminUsersPage() {
               >
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
                 Voltar ao Agente
+              </Link>
+              <Link
+                href="/admin/runs"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-ink shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
+              >
+                <Database className="h-4 w-4" aria-hidden="true" />
+                Histórico
               </Link>
               <button
                 type="button"
