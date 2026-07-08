@@ -643,7 +643,9 @@ export default function Home() {
         },
         body: JSON.stringify({
           pergunta: question.trim(),
-          sql: generatedSql
+          sql: generatedSql,
+          run_id: generation.response?.run_id,
+          agent_run_id: generation.response?.agent_run_id
         })
       });
 

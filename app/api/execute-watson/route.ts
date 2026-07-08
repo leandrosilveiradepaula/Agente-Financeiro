@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { updateAgentRunExecution } from "@/lib/agent-runs";
 import { N8N_WATSON_ORCHESTRATE_ENDPOINT } from "@/lib/n8n-endpoint";
 import { requireAgentSession } from "@/lib/server-auth";
 import { logger } from "@/lib/server-logger";
@@ -15,6 +16,12 @@ function isRecord(value: unknown): value is UnknownRecord {
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value
+  );
 }
 
 function errorResponse(message: string, status: number): NextResponse<ExecuteWatsonResponse> {
@@ -37,6 +44,7 @@ function errorResponse(message: string, status: number): NextResponse<ExecuteWat
 
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
+  const startedAt = Date.now();
   const { session, response: unauthorizedResponse } = await requireAgentSession();
 
   if (unauthorizedResponse || !session) {
@@ -65,6 +73,8 @@ export async function POST(request: Request) {
   const record = isRecord(body) ? body : {};
   const pergunta = asString(record.pergunta).trim();
   const sql = asString(record.sql).trim();
+  const requestedRunId =
+    asString(record.agent_run_id).trim() || asString(record.run_id).trim();
 
   if (!pergunta) {
     logger.warn("execute_watson.empty_question", { requestId });
@@ -89,6 +99,8 @@ export async function POST(request: Request) {
     return errorResponse("Token interno do serviço de orquestração não configurado.", 500);
   }
 
+  const agentRunId = isUuid(requestedRunId) ? requestedRunId : null;
+
   try {
     logger.info("execute_watson.request_started", {
       requestId,
@@ -108,6 +120,12 @@ export async function POST(request: Request) {
         limit: 100,
         sql,
         request_id: requestId,
+        ...(agentRunId
+          ? {
+              run_id: agentRunId,
+              agent_run_id: agentRunId
+            }
+          : {}),
         user_id: session.userId,
         user_email: session.email,
         user_name: session.name,
@@ -135,9 +153,34 @@ export async function POST(request: Request) {
         requestId,
         status: webhookResponse.status
       });
+      if (agentRunId) {
+        await updateAgentRunExecution({
+          id: agentRunId,
+          sqlExecuted: sql,
+          executionStatus: "failed",
+          executionError: `O serviço de orquestração retornou status ${webhookResponse.status}.`,
+          rowCount: normalized.row_count,
+          columns: normalized.columns,
+          data: normalized.data,
+          executionTimeMs: normalized.execution_time_ms,
+          totalTimeMs: Date.now() - startedAt,
+          executorMode: "watson_orchestration",
+          n8nStatusCode: webhookResponse.status,
+          metadata: {
+            truncated: normalized.truncated,
+            query_id: normalized.query_id
+          }
+        });
+      }
       return NextResponse.json(
         {
           ...normalized,
+          ...(agentRunId
+            ? {
+                run_id: agentRunId,
+                agent_run_id: agentRunId
+              }
+            : {}),
           success: false,
           error: `O serviço de orquestração retornou status ${webhookResponse.status}.`
         },
@@ -152,12 +195,52 @@ export async function POST(request: Request) {
       hasQueryId: Boolean(normalized.query_id)
     });
 
-    return NextResponse.json(normalized);
+    if (agentRunId) {
+      await updateAgentRunExecution({
+        id: agentRunId,
+        sqlExecuted: sql,
+        executionStatus: normalized.success ? "executed" : "failed",
+        executionError: normalized.success
+          ? null
+          : normalized.error_message ?? normalized.error ?? "execution_failed",
+        rowCount: normalized.row_count,
+        columns: normalized.columns,
+        data: normalized.data,
+        executionTimeMs: normalized.execution_time_ms,
+        totalTimeMs: Date.now() - startedAt,
+        executorMode: "watson_orchestration",
+        n8nStatusCode: webhookResponse.status,
+        metadata: {
+          truncated: normalized.truncated,
+          query_id: normalized.query_id
+        }
+      });
+    }
+
+    return NextResponse.json({
+      ...normalized,
+      ...(agentRunId
+        ? {
+            run_id: agentRunId,
+            agent_run_id: agentRunId
+          }
+        : {})
+    });
   } catch (error) {
     logger.error("execute_watson.request_failed", {
       requestId,
       error: error instanceof Error ? error.name : "UnknownError"
     });
+    if (agentRunId) {
+      await updateAgentRunExecution({
+        id: agentRunId,
+        sqlExecuted: sql,
+        executionStatus: "failed",
+        executionError: error instanceof Error ? error.message : String(error),
+        totalTimeMs: Date.now() - startedAt,
+        executorMode: "watson_orchestration"
+      });
+    }
     return errorResponse(
       "Erro ao executar no Watson via serviço de orquestração. Verifique conectividade e logs do servidor.",
       502

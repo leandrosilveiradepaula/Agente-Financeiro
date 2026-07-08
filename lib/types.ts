@@ -7,6 +7,8 @@ export type GenerateSqlResponse = {
   validation_status: string;
   sql: string;
   raw: unknown;
+  run_id?: string;
+  agent_run_id?: string;
   cache?: SqlGenerationCacheMetadata;
   error?: string;
 };
@@ -47,6 +49,8 @@ export type ExecuteWatsonResponse = {
   relatorio_executivo?: ExecutiveSummaryResult;
   executive_summary?: ExecutiveSummaryResult;
   relatorio_executivo_markdown?: string;
+  run_id?: string;
+  agent_run_id?: string;
   error?: string;
 };
 

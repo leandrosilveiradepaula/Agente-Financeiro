@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
+import {
+  createAgentRun,
+  updateAgentRunGeneratedSql
+} from "@/lib/agent-runs";
 import { normalizeGenerateSqlResponse } from "@/lib/generate-sql-normalization";
 import { N8N_WATSON_ORCHESTRATE_ENDPOINT } from "@/lib/n8n-endpoint";
-import { requireAgentSession } from "@/lib/server-auth";
+import { getRequestMetadata, requireAgentSession } from "@/lib/server-auth";
 import { logger } from "@/lib/server-logger";
 import { AGENT_VERSION, type GenerateSqlResponse } from "@/lib/types";
 
@@ -21,10 +25,33 @@ function asBoolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
 }
 
+function asNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readIntentConfidence(raw: unknown): number | null {
+  if (!isRecord(raw)) return null;
+
+  const direct = asNumber(raw.intent_confidence);
+  if (direct !== null) return direct;
+
+  if (isRecord(raw.classificacao)) {
+    const classified = asNumber(raw.classificacao.confidence);
+    if (classified !== null) return classified;
+  }
+
+  if (isRecord(raw.metadata)) {
+    return asNumber(raw.metadata.intent_confidence);
+  }
+
+  return null;
+}
+
 function buildErrorResponse(
   error: string,
   status = 400,
-  raw: unknown = null
+  raw: unknown = null,
+  runIds?: { agentRunId: string; runId: string | null }
 ) {
   return NextResponse.json(
     {
@@ -34,6 +61,12 @@ function buildErrorResponse(
       validation_status: "erro",
       sql: "",
       raw,
+      ...(runIds
+        ? {
+            agent_run_id: runIds.agentRunId,
+            run_id: runIds.runId ?? runIds.agentRunId
+          }
+        : {}),
       error
     } satisfies GenerateSqlResponse,
     { status }
@@ -106,6 +139,8 @@ export async function POST(request: Request) {
   }
 
   const pergunta = isRecord(body) ? asString(body.pergunta).trim() : "";
+  const requestedRunId =
+    isRecord(body) ? asString(body.run_id).trim() || asString(body.agent_run_id).trim() : "";
   const requestOptions = isRecord(body) && isRecord(body.options) ? body.options : {};
   const useSqlCache = asBoolean(requestOptions.use_sql_cache) ?? false;
 
@@ -118,6 +153,21 @@ export async function POST(request: Request) {
 
     return buildErrorResponse("Informe uma pergunta para gerar SQL.", 400);
   }
+
+  const requestMetadata = await getRequestMetadata();
+  const agentRun = await createAgentRun({
+    requestId,
+    runId: requestedRunId || undefined,
+    session,
+    pergunta,
+    metadata: requestMetadata,
+    extraMetadata: {
+      operation: "generate_sql",
+      options: {
+        use_sql_cache: useSqlCache
+      }
+    }
+  });
 
   try {
     logger.info("generate_sql.request_started", {
@@ -133,6 +183,8 @@ export async function POST(request: Request) {
     const webhookPayload = {
       pergunta,
       request_id: requestId,
+      run_id: agentRun.run_id ?? agentRun.id,
+      agent_run_id: agentRun.id,
       user_id: session.userId,
       user_email: session.email,
       user_name: session.name,
@@ -163,9 +215,22 @@ export async function POST(request: Request) {
         status: webhookResponse.status
       });
 
+      await updateAgentRunGeneratedSql({
+        id: agentRun.id,
+        validationStatus: "erro",
+        executionStatus: "failed",
+        executionError:
+          "O serviço de orquestração retornou uma resposta vazia ao gerar SQL.",
+        metadata: {
+          n8n_status_code: webhookResponse.status
+        }
+      });
+
       return buildErrorResponse(
         "O serviço de orquestração retornou uma resposta vazia ao gerar SQL. Verifique a execução da orquestração.",
-        502
+        502,
+        null,
+        { agentRunId: agentRun.id, runId: agentRun.run_id }
       );
     }
 
@@ -204,9 +269,26 @@ export async function POST(request: Request) {
         status: webhookResponse.status
       });
 
+      await updateAgentRunGeneratedSql({
+        id: agentRun.id,
+        detectedIntent: normalizedWithCache.detected_intent,
+        intentConfidence: readIntentConfidence(raw),
+        sqlGenerated: normalizedWithCache.sql,
+        validationStatus: normalizedWithCache.validation_status,
+        executionStatus: "failed",
+        executionError:
+          normalizedWithCache.error ||
+          `O serviço de orquestração retornou status ${webhookResponse.status}.`,
+        metadata: {
+          n8n_status_code: webhookResponse.status
+        }
+      });
+
       return NextResponse.json(
         {
           ...normalizedWithCache,
+          run_id: agentRun.run_id ?? agentRun.id,
+          agent_run_id: agentRun.id,
           success: false,
           error:
             normalizedWithCache.error ||
@@ -229,7 +311,25 @@ export async function POST(request: Request) {
       cacheHit: normalizedWithCache.cache?.hit
     });
 
-    return NextResponse.json(normalizedWithCache);
+    await updateAgentRunGeneratedSql({
+      id: agentRun.id,
+      detectedIntent: normalizedWithCache.detected_intent,
+      intentConfidence: readIntentConfidence(raw),
+      sqlGenerated: normalizedWithCache.sql,
+      validationStatus: normalizedWithCache.validation_status,
+      executionStatus: normalizedWithCache.success ? "generated" : "failed",
+      executionError: normalizedWithCache.success ? null : normalizedWithCache.error ?? null,
+      metadata: {
+        cache: normalizedWithCache.cache,
+        n8n_status_code: webhookResponse.status
+      }
+    });
+
+    return NextResponse.json({
+      ...normalizedWithCache,
+      run_id: agentRun.run_id ?? agentRun.id,
+      agent_run_id: agentRun.id
+    });
   } catch (error) {
     logger.error("generate_sql.request_failed", {
       requestId,
@@ -240,9 +340,18 @@ export async function POST(request: Request) {
       errorMessage: error instanceof Error ? error.message : String(error)
     });
 
+    await updateAgentRunGeneratedSql({
+      id: agentRun.id,
+      validationStatus: "erro",
+      executionStatus: "failed",
+      executionError: error instanceof Error ? error.message : String(error)
+    });
+
     return buildErrorResponse(
       "Erro ao acionar o serviço de orquestração. Verifique conectividade e logs do servidor.",
-      502
+      502,
+      null,
+      { agentRunId: agentRun.id, runId: agentRun.run_id }
     );
   }
 }
