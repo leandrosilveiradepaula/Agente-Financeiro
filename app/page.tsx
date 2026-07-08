@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   BarChart3,
@@ -10,6 +11,7 @@ import {
   FileCode2,
   LogOut,
   LockKeyhole,
+  Settings,
   ShieldCheck,
   XCircle
 } from "lucide-react";
@@ -927,6 +929,15 @@ export default function Home() {
               </div>
             ) : null}
             <div className="flex flex-wrap gap-2 sm:justify-end">
+              {authenticatedUser?.profile === "admin" ? (
+                <Link
+                  href="/admin/users"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-800 shadow-sm transition hover:border-blue-300 hover:bg-blue-100"
+                >
+                  <Settings className="h-4 w-4" aria-hidden="true" />
+                  Administração
+                </Link>
+              ) : null}
               <button
                 type="button"
                 onClick={clearWorkspace}
