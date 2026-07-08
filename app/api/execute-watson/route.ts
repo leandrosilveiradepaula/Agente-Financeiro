@@ -77,6 +77,17 @@ export async function POST(request: Request) {
   }
 
   const webhookUrl = N8N_WATSON_ORCHESTRATE_ENDPOINT;
+  const internalWebhookToken = process.env.N8N_INTERNAL_WEBHOOK_TOKEN || "";
+
+  if (!internalWebhookToken) {
+    logger.error("execute_watson.internal_token_missing", {
+      requestId,
+      userId: session.userId,
+      userProfile: session.userProfile
+    });
+
+    return errorResponse("Token interno do serviço de orquestração não configurado.", 500);
+  }
 
   try {
     logger.info("execute_watson.request_started", {
@@ -88,7 +99,8 @@ export async function POST(request: Request) {
     const webhookResponse = await fetch(webhookUrl, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "X-Agent-Internal-Token": internalWebhookToken
       },
       body: JSON.stringify({
         modo: "executar_sql",

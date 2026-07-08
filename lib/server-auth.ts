@@ -68,6 +68,29 @@ export async function requireAgentSession() {
   };
 }
 
+export async function requireAdminSession() {
+  const { session, response } = await requireAgentSession();
+
+  if (response || !session) {
+    return { session: null, response };
+  }
+
+  if (session.userProfile !== "admin") {
+    return {
+      session: null,
+      response: NextResponse.json(
+        {
+          success: false,
+          error: "forbidden"
+        },
+        { status: 403 }
+      )
+    };
+  }
+
+  return { session, response: null };
+}
+
 export async function revokeCurrentSession() {
   const cookieStore = await cookies();
   const token = cookieStore.get(AGENT_SESSION_COOKIE)?.value;

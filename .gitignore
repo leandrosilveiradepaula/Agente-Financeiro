@@ -77,3 +77,10 @@ backups/
 .cache/
 tmp/
 temp/
+cookies.txt
+.env.local
+.env.*.local
+node_modules/
+.next/
+cookies-teste.txt
+cookies*.txt
