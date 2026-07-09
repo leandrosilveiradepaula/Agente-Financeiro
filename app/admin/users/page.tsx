@@ -23,6 +23,20 @@ type AuthenticatedUser = {
   profile: string;
 };
 
+type AccountPolicy = {
+  profile: string;
+  display_name: string;
+  can_generate_sql: boolean;
+  can_execute_sql: boolean;
+  can_view_sql: boolean;
+  can_view_own_runs: boolean;
+  can_view_all_runs: boolean;
+  can_manage_users: boolean;
+  can_view_admin_area: boolean;
+  max_rows: number | null;
+  max_execution_time_ms: number | null;
+};
+
 type AdminUser = {
   id: string;
   name: string;
@@ -111,6 +125,7 @@ async function readApiError(response: Response, fallback: string) {
 export default function AdminUsersPage() {
   const [accessState, setAccessState] = useState<AccessState>("checking");
   const [loggedUser, setLoggedUser] = useState<AuthenticatedUser | null>(null);
+  const [accountPolicy, setAccountPolicy] = useState<AccountPolicy | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
@@ -172,7 +187,20 @@ export default function AdminUsersPage() {
 
       setLoggedUser(sessionData.user);
 
-      if (sessionData.user.profile !== "admin") {
+      const policyResponse = await fetch("/api/account/policy", { cache: "no-store" });
+      const policyData = (await policyResponse.json()) as {
+        success?: boolean;
+        policy?: AccountPolicy;
+        error?: string;
+      };
+
+      if (!policyResponse.ok || !policyData.success || !policyData.policy) {
+        throw new Error(policyData.error || "policy_load_failed");
+      }
+
+      setAccountPolicy(policyData.policy);
+
+      if (!policyData.policy.can_manage_users) {
         setAccessState("forbidden");
         return;
       }
@@ -449,13 +477,15 @@ export default function AdminUsersPage() {
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
                 Voltar ao Agente
               </Link>
-              <Link
-                href="/admin/runs"
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-ink shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
-              >
-                <Database className="h-4 w-4" aria-hidden="true" />
-                Histórico
-              </Link>
+              {accountPolicy?.can_view_all_runs ? (
+                <Link
+                  href="/admin/runs"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-ink shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
+                >
+                  <Database className="h-4 w-4" aria-hidden="true" />
+                  Histórico
+                </Link>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {

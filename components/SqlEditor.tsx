@@ -7,6 +7,7 @@ import type { SqlGenerationCacheMetadata } from "@/lib/types";
 
 type SqlEditorProps = {
   sql: string;
+  canCopy?: boolean;
   onSqlChange: (value: string) => void;
   cache?: SqlGenerationCacheMetadata;
 };
@@ -36,13 +37,13 @@ function cacheBadge(cache?: SqlGenerationCacheMetadata) {
   };
 }
 
-export function SqlEditor({ sql, onSqlChange, cache }: SqlEditorProps) {
+export function SqlEditor({ sql, canCopy = true, onSqlChange, cache }: SqlEditorProps) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState("");
   const badge = cacheBadge(cache);
 
   async function copySql() {
-    if (!sql.trim()) {
+    if (!canCopy || !sql.trim()) {
       return;
     }
 
@@ -70,7 +71,7 @@ export function SqlEditor({ sql, onSqlChange, cache }: SqlEditorProps) {
         </div>
         <button
           type="button"
-          disabled={!sql.trim()}
+          disabled={!canCopy || !sql.trim()}
           onClick={copySql}
           className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-ink shadow-sm transition hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
         >

@@ -83,6 +83,20 @@ type AuthenticatedUser = {
   profile: string;
 };
 
+type AccountPolicy = {
+  profile: string;
+  display_name: string;
+  can_generate_sql: boolean;
+  can_execute_sql: boolean;
+  can_view_sql: boolean;
+  can_view_own_runs: boolean;
+  can_view_all_runs: boolean;
+  can_manage_users: boolean;
+  can_view_admin_area: boolean;
+  max_rows: number | null;
+  max_execution_time_ms: number | null;
+};
+
 const INTERFACE_VERSION = "interface-v2.2.12";
 const INTERFACE_BASELINE = "v2.2.12 — Proteção de acesso à interface e APIs internas";
 
@@ -122,11 +136,33 @@ function statusBadge(value: string) {
   return value || "pendente";
 }
 
+function friendlyPolicyError(code?: string, fallback = "Não foi possível concluir a ação.") {
+  const messages: Record<string, string> = {
+    profile_cannot_generate_sql:
+      "Seu perfil não possui permissão para gerar consultas SQL.",
+    profile_cannot_execute_sql:
+      "Seu perfil não possui permissão para executar consultas SQL.",
+    profile_not_allowed_for_intent:
+      "Seu perfil não possui permissão para consultar esse tipo de informação.",
+    profile_not_allowed_for_table:
+      "Seu perfil não possui permissão para consultar uma das tabelas solicitadas.",
+    profile_policy_not_found:
+      "Não foi encontrada uma política ativa para o seu perfil.",
+    no_allowed_tables_detected:
+      "Não foi possível validar as tabelas da consulta para o seu perfil."
+  };
+
+  return code ? messages[code] ?? fallback : fallback;
+}
+
 export default function Home() {
   const [authState, setAuthState] = useState<AuthState>("checking");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authenticatedUser, setAuthenticatedUser] = useState<AuthenticatedUser | null>(null);
+  const [accountPolicy, setAccountPolicy] = useState<AccountPolicy | null>(null);
+  const [policyLoading, setPolicyLoading] = useState(false);
+  const [policyError, setPolicyError] = useState("");
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [question, setQuestion] = useState("");
@@ -155,8 +191,12 @@ export default function Home() {
   const [executiveSummary, setExecutiveSummary] = useState<ExecutiveSummaryResult | null>(null);
   const [useSqlCache, setUseSqlCache] = useState(false);
 
-  const canPrepareGeneration = question.trim().length > 0;
-  const canExecuteWatson = !generation.isLoading && !execution.isLoading;
+  const canGenerateSqlByPolicy = Boolean(accountPolicy?.can_generate_sql);
+  const canExecuteSqlByPolicy = Boolean(accountPolicy?.can_execute_sql);
+  const canPrepareGeneration =
+    question.trim().length > 0 && canGenerateSqlByPolicy && !policyLoading;
+  const canExecuteWatson =
+    !generation.isLoading && !execution.isLoading && canExecuteSqlByPolicy && !policyLoading;
   const isSqlHidden = Boolean(generation.response?.sql_hidden || generation.response?.can_view_sql === false);
   const detectedIntent = generation.response?.detected_intent || "";
   const hasDetectedIntent = Boolean(detectedIntent && detectedIntent !== "nao_informado");
@@ -191,6 +231,12 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (accountPolicy && !accountPolicy.can_execute_sql && resultMode === "manual") {
+      setResultMode("auto");
+    }
+  }, [accountPolicy, resultMode]);
+
+  useEffect(() => {
     let active = true;
 
     async function checkSession() {
@@ -206,11 +252,19 @@ export default function Home() {
         if (active) {
           setAuthState(data.authenticated ? "unlocked" : "locked");
           setAuthenticatedUser(data.authenticated ? data.user ?? null : null);
+          if (data.authenticated) {
+            await loadAccountPolicy(active);
+          } else {
+            setAccountPolicy(null);
+            setPolicyError("");
+          }
         }
       } catch {
         if (active) {
           setAuthState("locked");
           setAuthenticatedUser(null);
+          setAccountPolicy(null);
+          setPolicyError("");
         }
       }
     }
@@ -221,6 +275,38 @@ export default function Home() {
       active = false;
     };
   }, []);
+
+  async function loadAccountPolicy(active = true) {
+    setPolicyLoading(true);
+    setPolicyError("");
+
+    try {
+      const response = await fetch("/api/account/policy", { cache: "no-store" });
+      const data = (await response.json()) as {
+        success?: boolean;
+        policy?: AccountPolicy;
+        error?: string;
+      };
+
+      if (!response.ok || !data.success || !data.policy) {
+        throw new Error(data.error || "policy_load_failed");
+      }
+
+      if (active) {
+        setAccountPolicy(data.policy);
+      }
+    } catch (error) {
+      if (active) {
+        const code = error instanceof Error ? error.message : "policy_load_failed";
+        setAccountPolicy(null);
+        setPolicyError(friendlyPolicyError(code, "Não foi possível carregar as permissões do seu perfil."));
+      }
+    } finally {
+      if (active) {
+        setPolicyLoading(false);
+      }
+    }
+  }
 
   function saveHistoryItem(item: QueryHistoryItem) {
     setHistoryItems((currentItems) => {
@@ -521,6 +607,7 @@ export default function Home() {
       setPassword("");
       setAuthenticatedUser(data.user ?? null);
       setAuthState("unlocked");
+      await loadAccountPolicy();
     } catch {
       setAuthError("Não foi possível entrar agora.");
       setAuthState("locked");
@@ -538,6 +625,8 @@ export default function Home() {
       setAuthState("locked");
       setPassword("");
       setAuthenticatedUser(null);
+      setAccountPolicy(null);
+      setPolicyError("");
       setAuthError("");
       clearWorkspace();
     }
@@ -547,6 +636,15 @@ export default function Home() {
     const pergunta = question.trim();
 
     if (!pergunta || generation.isLoading) {
+      return;
+    }
+
+    if (!accountPolicy?.can_generate_sql) {
+      setGeneration((current) => ({
+        ...current,
+        isLoading: false,
+        error: "Seu perfil não possui permissão para gerar consultas neste agente financeiro."
+      }));
       return;
     }
 
@@ -573,7 +671,7 @@ export default function Home() {
       const data = (await response.json()) as GenerateSqlResponse;
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || "Nao foi possivel gerar a SQL.");
+        throw new Error(data.message || friendlyPolicyError(data.error, data.error || "Não foi possível gerar a SQL."));
       }
 
       setSql(data.sql);
@@ -611,6 +709,15 @@ export default function Home() {
 
   async function executeWatson() {
     if (!canExecuteWatson) {
+      if (!accountPolicy?.can_execute_sql) {
+        setExecution({
+          response: null,
+          isLoading: false,
+          error: "Seu perfil não possui permissão para executar consultas.",
+          message: "",
+          source: "automatico"
+        });
+      }
       return;
     }
 
@@ -654,7 +761,12 @@ export default function Home() {
       const data = (await response.json()) as ExecuteWatsonResponse;
 
       if (!response.ok) {
-        throw new Error(data.error_message || data.error || "Erro ao executar no Watson.");
+        const message = (data as ExecuteWatsonResponse & { message?: string }).message;
+        throw new Error(
+          message ||
+            data.error_message ||
+            friendlyPolicyError(data.error, data.error || "Erro ao executar no Watson.")
+        );
       }
 
       if (!data.success) {
@@ -693,6 +805,17 @@ export default function Home() {
         })
       );
     } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Seu perfil")) {
+        setExecution({
+          response: null,
+          isLoading: false,
+          error: error.message,
+          message: "",
+          source: "automatico"
+        });
+        return;
+      }
+
       setExecution({
         response: null,
         isLoading: false,
@@ -943,7 +1066,7 @@ export default function Home() {
                   Minha conta
                 </Link>
               ) : null}
-              {authenticatedUser?.profile === "admin" ? (
+              {accountPolicy?.can_view_all_runs ? (
                 <Link
                   href="/admin/runs"
                   className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-ink shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
@@ -952,7 +1075,7 @@ export default function Home() {
                   Histórico
                 </Link>
               ) : null}
-              {authenticatedUser?.profile === "admin" ? (
+              {accountPolicy?.can_manage_users ? (
                 <Link
                   href="/admin/users"
                   className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-800 shadow-sm transition hover:border-blue-300 hover:bg-blue-100"
@@ -983,8 +1106,24 @@ export default function Home() {
 
         <section className="grid gap-6 xl:grid-cols-[400px_minmax(0,1fr)]">
           <div className="flex min-w-0 flex-col gap-5">
+            {policyLoading ? (
+              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-900">
+                Carregando permissões do perfil...
+              </div>
+            ) : null}
+            {policyError ? (
+              <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-800">
+                {policyError}
+              </div>
+            ) : null}
             <QuestionInput
               canSubmit={canPrepareGeneration}
+              disabled={!canGenerateSqlByPolicy || policyLoading}
+              disabledMessage={
+                !policyLoading && !canGenerateSqlByPolicy
+                  ? "Seu perfil não possui permissão para gerar consultas neste agente financeiro."
+                  : undefined
+              }
               isLoading={generation.isLoading}
               question={question}
               useSqlCache={useSqlCache}
@@ -1088,7 +1227,12 @@ export default function Home() {
                 A SQL foi gerada e validada, mas não é exibida para o seu perfil.
               </div>
             ) : (
-              <SqlEditor sql={sql} onSqlChange={setSql} cache={generation.response?.cache} />
+              <SqlEditor
+                sql={sql}
+                canCopy={!isSqlHidden && accountPolicy?.can_view_sql !== false}
+                onSqlChange={setSql}
+                cache={generation.response?.cache}
+              />
             )}
 
             <section className="rounded-md border border-slate-200 bg-white p-4 shadow-soft">
@@ -1097,21 +1241,32 @@ export default function Home() {
                   <FileCode2 className="h-5 w-5 text-lake" aria-hidden="true" />
                   <h2 className="text-lg font-semibold text-ink">Resultado</h2>
                 </div>
-                <ResultModeTabs mode={resultMode} onModeChange={setResultMode} />
+                <ResultModeTabs
+                  mode={resultMode}
+                  disabledModes={!canExecuteSqlByPolicy ? ["manual"] : []}
+                  onModeChange={setResultMode}
+                />
               </div>
 
               {resultMode === "auto" ? (
-                <div className="mb-4 flex justify-end">
-                  <button
-                    type="button"
-                    disabled={!canExecuteWatson}
-                    onClick={executeWatson}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-lake px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
-                  >
-                    <Database className="h-4 w-4" aria-hidden="true" />
-                    {execution.isLoading ? "Executando..." : "Executar no Watson"}
-                  </button>
-                </div>
+                <>
+                  {!canExecuteSqlByPolicy ? (
+                    <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+                      Seu perfil não possui permissão para executar consultas.
+                    </div>
+                  ) : null}
+                  <div className="mb-4 flex justify-end">
+                    <button
+                      type="button"
+                      disabled={!canExecuteWatson}
+                      onClick={executeWatson}
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-lake px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+                    >
+                      <Database className="h-4 w-4" aria-hidden="true" />
+                      {execution.isLoading ? "Executando..." : "Executar no Watson"}
+                    </button>
+                  </div>
+                </>
               ) : (
                 <div className="mb-4">
                   <ManualWatsonResultInput
@@ -1182,7 +1337,7 @@ export default function Home() {
               {execution.response?.data.length && executiveSummary ? (
                 <ExecutiveReportActions
                   question={question}
-                  sql={sql}
+                  sql={isSqlHidden ? "" : sql}
                   columns={execution.response.columns}
                   data={execution.response.data}
                   metadata={resultMetadata}

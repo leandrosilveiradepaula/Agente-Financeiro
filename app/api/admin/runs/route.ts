@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { listAgentRuns } from "@/lib/agent-runs";
-import { requireAdminSession } from "@/lib/server-auth";
+import { listAgentRuns, sanitizeAgentRunForViewer } from "@/lib/agent-runs";
+import { getProfilePolicy } from "@/lib/profile-policy";
+import { requireAgentSession } from "@/lib/server-auth";
 
 export const runtime = "nodejs";
 
@@ -21,10 +22,26 @@ function parseOffset(value: string | null) {
 }
 
 export async function GET(request: Request) {
-  const { session, response } = await requireAdminSession();
+  const { session, response } = await requireAgentSession();
 
   if (response || !session) {
     return response;
+  }
+
+  const policy = await getProfilePolicy(session.userProfile);
+
+  if (!policy) {
+    return NextResponse.json(
+      { success: false, error: "profile_policy_not_found" },
+      { status: 403 }
+    );
+  }
+
+  if (!policy.can_view_all_runs) {
+    return NextResponse.json(
+      { success: false, error: "forbidden" },
+      { status: 403 }
+    );
   }
 
   const url = new URL(request.url);
@@ -44,7 +61,9 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     success: true,
-    runs: result.runs,
+    runs: result.runs.map((run) =>
+      sanitizeAgentRunForViewer(run, policy, { includeFullSql: false })
+    ),
     total: result.total
   });
 }

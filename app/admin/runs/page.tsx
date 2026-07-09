@@ -59,13 +59,40 @@ type AgentRun = {
   n8n_status_code: number | null;
   watson_status_code: number | null;
   metadata: JsonValue;
+  can_view_sql?: boolean;
+  sql_hidden?: boolean;
+  sql_preview?: string | null;
+};
+
+type AccountPolicy = {
+  profile: string;
+  display_name: string;
+  can_generate_sql: boolean;
+  can_execute_sql: boolean;
+  can_view_sql: boolean;
+  can_view_own_runs: boolean;
+  can_view_all_runs: boolean;
+  can_manage_users: boolean;
+  can_view_admin_area: boolean;
+  max_rows: number | null;
+  max_execution_time_ms: number | null;
 };
 
 type AccessState = "checking" | "unauthenticated" | "forbidden" | "allowed";
 
 const STATUS_OPTIONS = ["todos", "generated", "executed", "failed", "blocked", "pending"];
 const LIMIT_OPTIONS = ["25", "50", "100", "200"];
-const SENSITIVE_KEY_PATTERNS = ["token", "authorization", "cookie", "bearer", "password", "secret"];
+const SENSITIVE_KEY_PATTERNS = [
+  "token",
+  "authorization",
+  "cookie",
+  "bearer",
+  "password",
+  "secret",
+  "access_token",
+  "refresh_token",
+  "x-agent-internal-token"
+];
 
 function formatDate(value: string | null) {
   if (!value) return "-";
@@ -162,6 +189,7 @@ async function readApiError(response: Response, fallback: string) {
 export default function AdminRunsPage() {
   const [accessState, setAccessState] = useState<AccessState>("checking");
   const [loggedUser, setLoggedUser] = useState<AuthenticatedUser | null>(null);
+  const [accountPolicy, setAccountPolicy] = useState<AccountPolicy | null>(null);
   const [runs, setRuns] = useState<AgentRun[]>([]);
   const [selectedRun, setSelectedRun] = useState<AgentRun | null>(null);
   const [loading, setLoading] = useState(true);
@@ -257,7 +285,20 @@ export default function AdminRunsPage() {
 
       setLoggedUser(sessionData.user);
 
-      if (sessionData.user.profile !== "admin") {
+      const policyResponse = await fetch("/api/account/policy", { cache: "no-store" });
+      const policyData = (await policyResponse.json()) as {
+        success?: boolean;
+        policy?: AccountPolicy;
+        error?: string;
+      };
+
+      if (!policyResponse.ok || !policyData.success || !policyData.policy) {
+        throw new Error(policyData.error || "policy_load_failed");
+      }
+
+      setAccountPolicy(policyData.policy);
+
+      if (!policyData.policy.can_view_all_runs) {
         setAccessState("forbidden");
         return;
       }
@@ -361,7 +402,9 @@ export default function AdminRunsPage() {
         <section className="w-full max-w-md rounded-md border border-slate-200 bg-white p-6 shadow-soft">
           <Lock className="h-8 w-8 text-rose-600" aria-hidden="true" />
           <h1 className="mt-3 text-2xl font-semibold text-ink">Acesso restrito</h1>
-          <p className="mt-2 text-sm text-steel">Acesso restrito a administradores.</p>
+          <p className="mt-2 text-sm text-steel">
+            Acesso restrito a usuários com permissão de auditoria.
+          </p>
           <Link
             href="/"
             className="mt-5 inline-flex h-10 items-center justify-center rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-ink hover:bg-slate-50"
@@ -405,13 +448,15 @@ export default function AdminRunsPage() {
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
                 Voltar ao Agente
               </Link>
-              <Link
-                href="/admin/users"
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-800 shadow-sm transition hover:border-blue-300 hover:bg-blue-100"
-              >
-                <Users className="h-4 w-4" aria-hidden="true" />
-                Usuários
-              </Link>
+              {accountPolicy?.can_manage_users ? (
+                <Link
+                  href="/admin/users"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-800 shadow-sm transition hover:border-blue-300 hover:bg-blue-100"
+                >
+                  <Users className="h-4 w-4" aria-hidden="true" />
+                  Usuários
+                </Link>
+              ) : null}
             </div>
           </div>
         </header>
@@ -636,6 +681,7 @@ function SummaryCard({
 function RunDetails({ run, onCopy }: { run: AgentRun; onCopy: (value: string | null, label: string) => void }) {
   const rows = jsonObjectRows(run.data_preview);
   const columns = jsonArray(run.columns).map(String);
+  const hideSql = run.sql_hidden || run.can_view_sql === false;
 
   return (
     <div className="space-y-5">
@@ -661,8 +707,18 @@ function RunDetails({ run, onCopy }: { run: AgentRun; onCopy: (value: string | n
         <p className="mt-2 text-xs text-steel">{run.pergunta_normalizada ?? "-"}</p>
       </DetailSection>
 
-      <SqlSection title="SQL gerada" value={run.sql_generated} onCopy={() => onCopy(run.sql_generated, "SQL gerada")} />
-      <SqlSection title="SQL executada" value={run.sql_executed} onCopy={() => onCopy(run.sql_executed, "SQL executada")} />
+      {hideSql ? (
+        <DetailSection title="SQL">
+          <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-3 text-sm font-semibold text-blue-900">
+            A SQL desta execução não é exibida para o seu perfil.
+          </div>
+        </DetailSection>
+      ) : (
+        <>
+          <SqlSection title="SQL gerada" value={run.sql_generated} onCopy={() => onCopy(run.sql_generated, "SQL gerada")} />
+          <SqlSection title="SQL executada" value={run.sql_executed} onCopy={() => onCopy(run.sql_executed, "SQL executada")} />
+        </>
+      )}
 
       <DetailSection title="Resultado">
         {rows.length > 0 ? (

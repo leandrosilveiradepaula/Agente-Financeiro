@@ -78,6 +78,16 @@ export type SanitizedAgentRun = Omit<
   metadata: JsonValue;
 };
 
+export type AgentRunViewerPolicy = {
+  can_view_sql: boolean;
+};
+
+export type SanitizedAgentRunForViewer = SanitizedAgentRun & {
+  can_view_sql: boolean;
+  sql_hidden: boolean;
+  sql_preview: string | null;
+};
+
 function normalizeQuestion(question: string) {
   return question.trim().replace(/\s+/g, " ").toLowerCase();
 }
@@ -146,6 +156,33 @@ export function sanitizeAgentRun(run: AgentRunRow): SanitizedAgentRun {
     columns: sanitizeJsonArray(run.columns),
     data_preview: sanitizeJsonArray(run.data_preview),
     metadata: sanitizeJsonValue(run.metadata)
+  };
+}
+
+function buildSqlPreview(run: SanitizedAgentRun) {
+  const sql = run.sql_executed || run.sql_generated || "";
+  const compact = sql.replace(/\s+/g, " ").trim();
+
+  if (!compact) return null;
+
+  return compact.length > 180 ? `${compact.slice(0, 180)}...` : compact;
+}
+
+export function sanitizeAgentRunForViewer(
+  run: SanitizedAgentRun,
+  policy: AgentRunViewerPolicy,
+  options?: { includeFullSql?: boolean }
+): SanitizedAgentRunForViewer {
+  const canViewSql = Boolean(policy.can_view_sql);
+  const includeFullSql = Boolean(options?.includeFullSql);
+
+  return {
+    ...run,
+    can_view_sql: canViewSql,
+    sql_hidden: !canViewSql,
+    sql_generated: canViewSql && includeFullSql ? run.sql_generated : "",
+    sql_executed: canViewSql && includeFullSql ? run.sql_executed : "",
+    sql_preview: canViewSql ? buildSqlPreview(run) : null
   };
 }
 

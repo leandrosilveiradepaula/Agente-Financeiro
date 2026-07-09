@@ -69,6 +69,21 @@ export type SanitizedProfilePolicy = Omit<
   metadata: JsonValue;
 };
 
+export type PublicProfilePolicy = Pick<
+  SanitizedProfilePolicy,
+  | "profile"
+  | "display_name"
+  | "can_generate_sql"
+  | "can_execute_sql"
+  | "can_view_sql"
+  | "can_view_own_runs"
+  | "can_view_all_runs"
+  | "can_manage_users"
+  | "can_view_admin_area"
+  | "max_rows"
+  | "max_execution_time_ms"
+>;
+
 function sanitizeJsonValue(value: unknown): JsonValue {
   if (value === null || value === undefined) return null;
 
@@ -130,6 +145,24 @@ export function sanitizeProfilePolicy(policy: ProfilePolicyRow): SanitizedProfil
     max_rows: policy.max_rows,
     max_execution_time_ms: policy.max_execution_time_ms,
     metadata: sanitizeJsonValue(policy.metadata)
+  };
+}
+
+export function sanitizeProfilePolicyCapabilities(
+  policy: SanitizedProfilePolicy
+): PublicProfilePolicy {
+  return {
+    profile: policy.profile,
+    display_name: policy.display_name,
+    can_generate_sql: policy.can_generate_sql,
+    can_execute_sql: policy.can_execute_sql,
+    can_view_sql: policy.can_view_sql,
+    can_view_own_runs: policy.can_view_own_runs,
+    can_view_all_runs: policy.can_view_all_runs,
+    can_manage_users: policy.can_manage_users,
+    can_view_admin_area: policy.can_view_admin_area,
+    max_rows: policy.max_rows,
+    max_execution_time_ms: policy.max_execution_time_ms
   };
 }
 
