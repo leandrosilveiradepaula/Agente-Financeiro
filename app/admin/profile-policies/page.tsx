@@ -7,6 +7,7 @@ import {
   BarChart3,
   Edit3,
   Lock,
+  LockKeyhole,
   Settings,
   ShieldAlert,
   ShieldCheck,
@@ -61,6 +62,9 @@ type JsonValue =
 
 type JsonObject = { [key: string]: JsonValue };
 type AccessState = "checking" | "unauthenticated" | "forbidden" | "allowed";
+
+const PROFILE_POLICY_MANAGEMENT_ENABLED =
+  process.env.NEXT_PUBLIC_PROFILE_POLICY_MANAGEMENT_ENABLED === "true";
 
 type PolicyForm = {
   display_name: string;
@@ -213,6 +217,11 @@ export default function AdminProfilePoliciesPage() {
   }, []);
 
   const checkAccessAndLoad = useCallback(async () => {
+    if (!PROFILE_POLICY_MANAGEMENT_ENABLED) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError("");
 
@@ -260,6 +269,26 @@ export default function AdminProfilePoliciesPage() {
   useEffect(() => {
     checkAccessAndLoad();
   }, [checkAccessAndLoad]);
+
+  if (!PROFILE_POLICY_MANAGEMENT_ENABLED) {
+    return (
+      <main className="flex min-h-screen items-center justify-center px-4 text-ink">
+        <section className="w-full max-w-md rounded-md border border-slate-200 bg-white p-6 shadow-soft">
+          <ShieldAlert className="h-8 w-8 text-amber-600" aria-hidden="true" />
+          <h1 className="mt-3 text-2xl font-semibold text-ink">Módulo indisponível</h1>
+          <p className="mt-2 text-sm text-steel">
+            A gestão de políticas está desabilitada neste ambiente.
+          </p>
+          <Link
+            href="/"
+            className="mt-5 inline-flex h-10 items-center justify-center rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-ink hover:bg-slate-50"
+          >
+            Voltar ao Agente
+          </Link>
+        </section>
+      </main>
+    );
+  }
 
   function openEdit(policy: ProfilePolicy) {
     setEditingPolicy(policy);
@@ -442,6 +471,10 @@ export default function AdminProfilePoliciesPage() {
                   Histórico
                 </Link>
               ) : null}
+              <Link className="admin-action-button" href="/admin/security">
+                <LockKeyhole className="h-4 w-4" aria-hidden="true" />
+                Segurança
+              </Link>
             </div>
           </div>
         </header>

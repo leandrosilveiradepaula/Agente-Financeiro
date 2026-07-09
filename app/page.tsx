@@ -80,6 +80,9 @@ type ExecutionState = {
   source: "automatico" | "manual" | null;
 };
 
+const PROFILE_POLICY_MANAGEMENT_ENABLED =
+  process.env.NEXT_PUBLIC_PROFILE_POLICY_MANAGEMENT_ENABLED === "true";
+
 type AuthState = "checking" | "locked" | "unlocked";
 
 type AuthenticatedUser = {
@@ -1139,6 +1142,15 @@ export default function Home() {
                 </Link>
               ) : null}
               {accountPolicy?.can_manage_users ? (
+                <Link
+                  href="/admin/security"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-ink shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
+                >
+                  <LockKeyhole className="h-4 w-4" aria-hidden="true" />
+                  Segurança
+                </Link>
+              ) : null}
+              {accountPolicy?.can_manage_users && PROFILE_POLICY_MANAGEMENT_ENABLED ? (
                 <Link
                   href="/admin/profile-policies"
                   className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-ink shadow-sm transition hover:border-blue-300 hover:bg-blue-50"

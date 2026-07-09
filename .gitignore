@@ -84,3 +84,5 @@ node_modules/
 .next/
 cookies-teste.txt
 cookies*.txt
+cookies-*.txt
+*.p12

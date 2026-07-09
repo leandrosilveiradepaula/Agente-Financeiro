@@ -67,6 +67,9 @@ type AuditEvent = {
 type AccessState = "checking" | "unauthenticated" | "forbidden" | "allowed";
 type PanelMode = "new" | "edit" | "reset" | "audit" | null;
 
+const PROFILE_POLICY_MANAGEMENT_ENABLED =
+  process.env.NEXT_PUBLIC_PROFILE_POLICY_MANAGEMENT_ENABLED === "true";
+
 const PROFILES = ["admin", "diretoria", "financeiro", "auditoria", "comercial"];
 
 const emptyCreateForm = {
@@ -486,13 +489,22 @@ export default function AdminUsersPage() {
                   Histórico
                 </Link>
               ) : null}
-              {accountPolicy?.can_manage_users ? (
+              {accountPolicy?.can_manage_users && PROFILE_POLICY_MANAGEMENT_ENABLED ? (
                 <Link
                   href="/admin/profile-policies"
                   className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-800 shadow-sm transition hover:border-blue-300 hover:bg-blue-100"
                 >
                   <ShieldCheck className="h-4 w-4" aria-hidden="true" />
                   Políticas
+                </Link>
+              ) : null}
+              {accountPolicy?.can_manage_users ? (
+                <Link
+                  href="/admin/security"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-ink shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
+                >
+                  <Lock className="h-4 w-4" aria-hidden="true" />
+                  Segurança
                 </Link>
               ) : null}
               <button

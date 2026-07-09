@@ -11,11 +11,25 @@ import { requireAdminSession } from "@/lib/server-auth";
 
 export const runtime = "nodejs";
 
+function moduleDisabledResponse() {
+  return NextResponse.json(
+    {
+      success: false,
+      error: "module_disabled"
+    },
+    { status: 404 }
+  );
+}
+
 type RouteContext = {
   params: Promise<{ profile: string }>;
 };
 
 export async function GET(_request: Request, context: RouteContext) {
+  if (process.env.PROFILE_POLICY_MANAGEMENT_ENABLED !== "true") {
+    return moduleDisabledResponse();
+  }
+
   const { session, response } = await requireAdminSession();
 
   if (response || !session) {
@@ -42,6 +56,10 @@ export async function GET(_request: Request, context: RouteContext) {
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
+  if (process.env.PROFILE_POLICY_MANAGEMENT_ENABLED !== "true") {
+    return moduleDisabledResponse();
+  }
+
   const requestId = crypto.randomUUID();
   const { session, response } = await requireAdminSession();
 
