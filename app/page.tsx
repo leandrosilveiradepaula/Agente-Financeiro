@@ -39,6 +39,7 @@ import {
   clearExecutiveReportHistory,
   readExecutiveReportHistory,
   removeExecutiveReportHistory,
+  sanitizeExecutiveReportHistoryForPolicy,
   upsertExecutiveReportHistory
 } from "@/lib/executive-report-history";
 import { buildExecutiveReportMarkdown } from "@/lib/executive-report-markdown";
@@ -49,7 +50,12 @@ import {
   writeInterfaceSettings,
   type InterfaceSettings
 } from "@/lib/interface-settings";
-import { readQueryHistory, upsertQueryHistory, writeQueryHistory } from "@/lib/history";
+import {
+  readQueryHistory,
+  sanitizeQueryHistoryForPolicy,
+  upsertQueryHistory,
+  writeQueryHistory
+} from "@/lib/history";
 import { normalizeWatsonResult } from "@/lib/watson-result-normalization";
 import {
   AGENT_VERSION,
@@ -193,6 +199,23 @@ export default function Home() {
 
   const canGenerateSqlByPolicy = Boolean(accountPolicy?.can_generate_sql);
   const canExecuteSqlByPolicy = Boolean(accountPolicy?.can_execute_sql);
+  const canViewSqlByPolicy = accountPolicy?.can_view_sql !== false;
+  const canUseAgent = canGenerateSqlByPolicy || canExecuteSqlByPolicy;
+  const canSeeQueryHistory = Boolean(accountPolicy?.can_view_own_runs && canUseAgent);
+  const canSeeReportHistory = Boolean(accountPolicy?.can_view_own_runs && canExecuteSqlByPolicy);
+  const canManageOperationalTools = Boolean(accountPolicy?.can_manage_users);
+  const canAuditOperationalTools = Boolean(
+    accountPolicy?.can_manage_users || accountPolicy?.can_view_all_runs
+  );
+  const showWhatsAppOperationalTool = canManageOperationalTools;
+  const showInterfaceSettingsTool = canManageOperationalTools;
+  const showDiagnosticsTool = canAuditOperationalTools;
+  const showBenchmarkTool = canAuditOperationalTools;
+  const hasOperationalTools =
+    showWhatsAppOperationalTool ||
+    showInterfaceSettingsTool ||
+    showDiagnosticsTool ||
+    showBenchmarkTool;
   const canPrepareGeneration =
     question.trim().length > 0 && canGenerateSqlByPolicy && !policyLoading;
   const canExecuteWatson =
@@ -222,13 +245,43 @@ export default function Home() {
   );
 
   useEffect(() => {
-    setHistoryItems(readQueryHistory());
-    setExecutiveReportHistory(readExecutiveReportHistory());
     const settings = readInterfaceSettings();
     setInterfaceSettings(settings);
     setResultMode(settings.defaultResultMode);
     setUseSqlCache(settings.useSqlCache);
   }, []);
+
+  useEffect(() => {
+    const userId = authenticatedUser?.id;
+
+    if (authState !== "unlocked" || !userId || !accountPolicy) {
+      setHistoryItems([]);
+      setExecutiveReportHistory([]);
+      return;
+    }
+
+    setHistoryItems(
+      canSeeQueryHistory
+        ? sanitizeQueryHistoryForPolicy(readQueryHistory(userId), {
+            canViewSql: canViewSqlByPolicy
+          })
+        : []
+    );
+    setExecutiveReportHistory(
+      canSeeReportHistory
+        ? sanitizeExecutiveReportHistoryForPolicy(readExecutiveReportHistory(userId), {
+            canViewSql: canViewSqlByPolicy
+          })
+        : []
+    );
+  }, [
+    accountPolicy,
+    authState,
+    authenticatedUser?.id,
+    canSeeQueryHistory,
+    canSeeReportHistory,
+    canViewSqlByPolicy
+  ]);
 
   useEffect(() => {
     if (accountPolicy && !accountPolicy.can_execute_sql && resultMode === "manual") {
@@ -309,9 +362,14 @@ export default function Home() {
   }
 
   function saveHistoryItem(item: QueryHistoryItem) {
+    const userId = authenticatedUser?.id;
+    if (!userId || !canSeeQueryHistory) return;
+
+    const safeItem = canViewSqlByPolicy ? item : { ...item, sql: "" };
+
     setHistoryItems((currentItems) => {
-      const nextItems = upsertQueryHistory(currentItems, item);
-      writeQueryHistory(nextItems);
+      const nextItems = upsertQueryHistory(currentItems, safeItem);
+      writeQueryHistory(nextItems, userId);
       return nextItems;
     });
   }
@@ -319,7 +377,7 @@ export default function Home() {
   const markExecutiveSummaryGenerated = useCallback((summary: ExecutiveSummaryResult) => {
     setExecutiveSummary(summary);
 
-    if (!question.trim() || !sql.trim()) {
+    if (!question.trim() || !canSeeReportHistory || !authenticatedUser?.id) {
       return;
     }
 
@@ -359,16 +417,18 @@ export default function Home() {
     }
 
     const markdown =
-      execution.response.relatorio_executivo_markdown?.trim() ||
+      canViewSqlByPolicy ? execution.response.relatorio_executivo_markdown?.trim() || "" : "";
+    const reportMarkdown =
+      markdown ||
       buildExecutiveReportMarkdown({
         question,
-        sql,
+        sql: canViewSqlByPolicy ? sql : "",
         metadata: resultMetadata,
         executiveSummary: summary,
-        includeSql: interfaceSettings.markdownIncludeSql
+        includeSql: canViewSqlByPolicy && interfaceSettings.markdownIncludeSql
       });
 
-    if (!markdown.trim()) {
+    if (!reportMarkdown.trim()) {
       return;
     }
 
@@ -376,8 +436,8 @@ export default function Home() {
       upsertExecutiveReportHistory(currentItems, {
         id: crypto.randomUUID(),
         question: question.trim(),
-        sql,
-        markdown,
+        sql: canViewSqlByPolicy ? sql : "",
+        markdown: reportMarkdown,
         summary,
         query_id: execution.response?.query_id || undefined,
         detected_intent: generation.response?.detected_intent || summary.intent,
@@ -385,12 +445,12 @@ export default function Home() {
         row_count: execution.response?.row_count,
         execution_time_ms: execution.response?.execution_time_ms,
         generated_at: new Date().toISOString()
-      })
+      }, authenticatedUser.id)
     );
-  }, [execution.response, generation.response?.detected_intent, generation.response?.validation_status, interfaceSettings.markdownIncludeSql, question, resultMetadata, sql]);
+  }, [authenticatedUser?.id, canSeeReportHistory, canViewSqlByPolicy, execution.response, generation.response?.detected_intent, generation.response?.validation_status, interfaceSettings.markdownIncludeSql, question, resultMetadata, sql]);
 
   const markPdfExported = useCallback(() => {
-    if (!question.trim() || !sql.trim()) {
+    if (!question.trim() || !authenticatedUser?.id || !canSeeQueryHistory) {
       return;
     }
 
@@ -415,12 +475,12 @@ export default function Home() {
       });
 
       if (changed) {
-        writeQueryHistory(nextItems);
+        writeQueryHistory(nextItems, authenticatedUser.id);
       }
 
       return nextItems;
     });
-  }, [question, sql]);
+  }, [authenticatedUser?.id, canSeeQueryHistory, question, sql]);
 
   function buildHistoryItem({
     pergunta,
@@ -454,16 +514,19 @@ export default function Home() {
   }
 
   function loadHistoryItem(item: QueryHistoryItem) {
+    const safeSql = canViewSqlByPolicy ? item.sql : "";
     setQuestion(item.pergunta);
-    setSql(item.sql);
+    setSql(safeSql);
     setGeneration({
       response: {
         success: true,
         agent_version: item.agent_version,
         detected_intent: item.detected_intent,
         validation_status: item.validation_status,
-        sql: item.sql,
+        sql: safeSql,
         raw: null,
+        can_view_sql: canViewSqlByPolicy,
+        sql_hidden: !canViewSqlByPolicy,
         cache:
           item.cache_enabled !== undefined
             ? {
@@ -499,7 +562,7 @@ export default function Home() {
   function removeHistoryItem(id: string) {
     setHistoryItems((currentItems) => {
       const nextItems = currentItems.filter((item) => item.id !== id);
-      writeQueryHistory(nextItems);
+      writeQueryHistory(nextItems, authenticatedUser?.id);
       return nextItems;
     });
   }
@@ -510,15 +573,15 @@ export default function Home() {
     }
 
     setHistoryItems([]);
-    writeQueryHistory([]);
+    writeQueryHistory([], authenticatedUser?.id);
   }
 
   function removeExecutiveReportHistoryItem(id: string) {
-    setExecutiveReportHistory(removeExecutiveReportHistory(id));
+    setExecutiveReportHistory(removeExecutiveReportHistory(id, authenticatedUser?.id));
   }
 
   function clearExecutiveReports() {
-    setExecutiveReportHistory(clearExecutiveReportHistory());
+    setExecutiveReportHistory(clearExecutiveReportHistory(authenticatedUser?.id));
   }
 
   function clearLocalErrors() {
@@ -1141,74 +1204,86 @@ export default function Home() {
               onSubmit={generateSql}
             />
             <ExampleQuestions onSelectQuestion={setQuestion} />
-            <QueryHistoryPanel
-              items={historyItems}
-              onSelectItem={loadHistoryItem}
-              onRemoveItem={removeHistoryItem}
-              onClearHistory={clearHistory}
-            />
-            {interfaceSettings.showExecutiveReportHistory ? (
+            {canSeeQueryHistory ? (
+              <QueryHistoryPanel
+                items={historyItems}
+                onSelectItem={loadHistoryItem}
+                onRemoveItem={removeHistoryItem}
+                onClearHistory={clearHistory}
+              />
+            ) : null}
+            {canSeeReportHistory && interfaceSettings.showExecutiveReportHistory ? (
               <ExecutiveReportHistoryPanel
                 items={executiveReportHistory}
                 onRemoveItem={removeExecutiveReportHistoryItem}
                 onClearHistory={clearExecutiveReports}
               />
             ) : null}
-            <section className="space-y-3">
-              <div className="rounded-md border border-slate-200 bg-white px-4 py-3 shadow-soft">
-                <h2 className="text-base font-semibold text-ink">Ferramentas operacionais</h2>
-                <p className="mt-1 text-xs font-medium text-steel">
-                  Painéis auxiliares recolhidos para manter a tela principal limpa.
-                </p>
-              </div>
+            {hasOperationalTools ? (
+              <section className="space-y-3">
+                <div className="rounded-md border border-slate-200 bg-white px-4 py-3 shadow-soft">
+                  <h2 className="text-base font-semibold text-ink">Ferramentas operacionais</h2>
+                  <p className="mt-1 text-xs font-medium text-steel">
+                    Painéis auxiliares recolhidos para manter a tela principal limpa.
+                  </p>
+                </div>
 
-              <AccordionSection
-                title="Demonstração WhatsApp"
-                summary={<WhatsAppOperationalSummary />}
-              >
-                <WhatsAppDemoPanel />
-              </AccordionSection>
+                {showWhatsAppOperationalTool ? (
+                  <AccordionSection
+                    title="Demonstração WhatsApp"
+                    summary={<WhatsAppOperationalSummary />}
+                  >
+                    <WhatsAppDemoPanel />
+                  </AccordionSection>
+                ) : null}
 
-              <AccordionSection
-                title="Configurações da interface"
-                summary="Preferências locais da interface"
-              >
-                <InterfaceSettingsPanel
-                  settings={interfaceSettings}
-                  onSaveSettings={saveInterfaceSettings}
-                  onResetSettings={restoreInterfaceSettings}
-                />
-              </AccordionSection>
+                {showInterfaceSettingsTool ? (
+                  <AccordionSection
+                    title="Configurações da interface"
+                    summary="Preferências locais da interface"
+                  >
+                    <InterfaceSettingsPanel
+                      settings={interfaceSettings}
+                      onSaveSettings={saveInterfaceSettings}
+                      onResetSettings={restoreInterfaceSettings}
+                    />
+                  </AccordionSection>
+                ) : null}
 
-              <AccordionSection
-                title="Diagnóstico do agente"
-                summary={
-                  execution.response
-                    ? execution.response.success
-                      ? `Execução OK • ${execution.response.row_count} linhas`
-                      : "Execução com erro"
-                    : "Sem execução atual"
-                }
-              >
-                <AgentDiagnosticsPanel
-                  interfaceVersion={INTERFACE_VERSION}
-                  baseline={INTERFACE_BASELINE}
-                  agentVersion={AGENT_VERSION}
-                  generation={generation}
-                  execution={execution}
-                  metadata={resultMetadata}
-                  queryHistoryCount={historyItems.length}
-                  executiveReportHistoryCount={executiveReportHistory.length}
-                  lastExecutiveReport={executiveReportHistory[0] ?? null}
-                  executiveSummary={executiveSummary}
-                  onClearLocalErrors={clearLocalErrors}
-                />
-              </AccordionSection>
+                {showDiagnosticsTool ? (
+                  <AccordionSection
+                    title="Diagnóstico do agente"
+                    summary={
+                      execution.response
+                        ? execution.response.success
+                          ? `Execução OK • ${execution.response.row_count} linhas`
+                          : "Execução com erro"
+                        : "Sem execução atual"
+                    }
+                  >
+                    <AgentDiagnosticsPanel
+                      interfaceVersion={INTERFACE_VERSION}
+                      baseline={INTERFACE_BASELINE}
+                      agentVersion={AGENT_VERSION}
+                      generation={generation}
+                      execution={execution}
+                      metadata={resultMetadata}
+                      queryHistoryCount={historyItems.length}
+                      executiveReportHistoryCount={executiveReportHistory.length}
+                      lastExecutiveReport={executiveReportHistory[0] ?? null}
+                      executiveSummary={executiveSummary}
+                      onClearLocalErrors={clearLocalErrors}
+                    />
+                  </AccordionSection>
+                ) : null}
 
-              <AccordionSection title="Benchmark e homologação" summary="5 casos homologados">
-                <BenchmarkHomologationPanel baseline={INTERFACE_BASELINE} />
-              </AccordionSection>
-            </section>
+                {showBenchmarkTool ? (
+                  <AccordionSection title="Benchmark e homologação" summary="5 casos homologados">
+                    <BenchmarkHomologationPanel baseline={INTERFACE_BASELINE} />
+                  </AccordionSection>
+                ) : null}
+              </section>
+            ) : null}
           </div>
 
           <div className="flex min-w-0 flex-col gap-5">

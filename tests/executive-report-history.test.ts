@@ -31,6 +31,8 @@ function makeReport(overrides: Partial<ExecutiveReportHistoryItem> = {}): Execut
 }
 
 describe("executive report history helpers", () => {
+  const userId = "user-1";
+
   beforeEach(() => {
     window.localStorage.clear();
   });
@@ -38,9 +40,9 @@ describe("executive report history helpers", () => {
   it("writes and reads report history", () => {
     const report = makeReport();
 
-    writeExecutiveReportHistory([report]);
+    writeExecutiveReportHistory([report], userId);
 
-    expect(readExecutiveReportHistory()).toEqual([report]);
+    expect(readExecutiveReportHistory(userId)).toEqual([report]);
   });
 
   it("deduplicates by query_id", () => {
@@ -68,19 +70,29 @@ describe("executive report history helpers", () => {
       })
     );
 
-    writeExecutiveReportHistory(items);
+    writeExecutiveReportHistory(items, userId);
 
-    expect(readExecutiveReportHistory()).toHaveLength(30);
+    expect(readExecutiveReportHistory(userId)).toHaveLength(30);
   });
 
   it("removes and clears reports", () => {
     const first = makeReport({ id: "first", query_id: "first" });
     const second = makeReport({ id: "second", query_id: "second" });
 
-    writeExecutiveReportHistory([first, second]);
+    writeExecutiveReportHistory([first, second], userId);
 
-    expect(removeExecutiveReportHistory("first")).toEqual([second]);
-    expect(clearExecutiveReportHistory()).toEqual([]);
-    expect(readExecutiveReportHistory()).toEqual([]);
+    expect(removeExecutiveReportHistory("first", userId)).toEqual([second]);
+    expect(clearExecutiveReportHistory(userId)).toEqual([]);
+    expect(readExecutiveReportHistory(userId)).toEqual([]);
+  });
+
+  it("ignores legacy global report history", () => {
+    const report = makeReport();
+    window.localStorage.setItem(
+      "ducklake-sql-agent-executive-report-history",
+      JSON.stringify([report])
+    );
+
+    expect(readExecutiveReportHistory(userId)).toEqual([]);
   });
 });
