@@ -157,6 +157,7 @@ export default function Home() {
 
   const canPrepareGeneration = question.trim().length > 0;
   const canExecuteWatson = !generation.isLoading && !execution.isLoading;
+  const isSqlHidden = Boolean(generation.response?.sql_hidden || generation.response?.can_view_sql === false);
   const detectedIntent = generation.response?.detected_intent || "";
   const hasDetectedIntent = Boolean(detectedIntent && detectedIntent !== "nao_informado");
   const resultMetadata = useMemo(
@@ -614,8 +615,9 @@ export default function Home() {
     }
 
     const generatedSql = sql.trim();
+    const agentRunId = generation.response?.agent_run_id || generation.response?.run_id || "";
 
-    if (!generatedSql) {
+    if (!generatedSql && !agentRunId) {
       setExecution({
         response: null,
         isLoading: false,
@@ -643,7 +645,7 @@ export default function Home() {
         },
         body: JSON.stringify({
           pergunta: question.trim(),
-          sql: generatedSql,
+          ...(generatedSql ? { sql: generatedSql } : {}),
           run_id: generation.response?.run_id,
           agent_run_id: generation.response?.agent_run_id
         })
@@ -1081,7 +1083,13 @@ export default function Home() {
               </div>
             ) : null}
 
-            <SqlEditor sql={sql} onSqlChange={setSql} cache={generation.response?.cache} />
+            {isSqlHidden ? (
+              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-3 text-sm font-semibold text-blue-900">
+                A SQL foi gerada e validada, mas não é exibida para o seu perfil.
+              </div>
+            ) : (
+              <SqlEditor sql={sql} onSqlChange={setSql} cache={generation.response?.cache} />
+            )}
 
             <section className="rounded-md border border-slate-200 bg-white p-4 shadow-soft">
               <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">

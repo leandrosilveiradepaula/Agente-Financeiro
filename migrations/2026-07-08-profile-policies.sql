@@ -99,7 +99,7 @@ VALUES
     false,
     '["dre_resumo","orcado_vs_realizado","opex_por_centro_custo","indicadores_gerenciais"]'::jsonb,
     '["lancamentos_contabeis_detalhados"]'::jsonb,
-    '["dev_lakehouse.main_gold.gold_orcamento","dev_lakehouse.main_gold.gold_lancamentos_contabeis","dev_lakehouse.main_gold.gold_centro_custo","dev_lakehouse.main_gold.gold_plano_contas","dev_lakehouse.main_gold.gold_unidade_negocio"]'::jsonb,
+    '["dev_lakehouse.main_gold.gold_orcamento","dev_lakehouse.main_gold.gold_rateios_orcamentos","dev_lakehouse.main_gold.gold_lancamentos_contabeis","dev_lakehouse.main_gold.gold_rateios_lancamentos_contabeis","dev_lakehouse.main_gold.gold_centro_custo","dev_lakehouse.main_gold.gold_plano_contas","dev_lakehouse.main_gold.gold_unidade_negocio"]'::jsonb,
     '[]'::jsonb,
     500,
     30000,

@@ -320,6 +320,46 @@ export async function updateAgentRunExecution(input: {
   return getAgentRunById(input.id);
 }
 
+export async function markAgentRunBlocked(input: {
+  agentRunId: string;
+  executionError: string;
+  detectedIntent?: string | null;
+  metadata?: Record<string, unknown>;
+  validationStatus?: string | null;
+  validationErrors?: unknown[];
+  sqlGenerated?: string | null;
+  sqlExecuted?: string | null;
+}) {
+  await db.query(
+    `
+    UPDATE public.ai_agent_runs
+    SET
+      execution_status = 'blocked',
+      execution_error = $2,
+      detected_intent = COALESCE($3, detected_intent),
+      validation_status = COALESCE($4, validation_status),
+      validation_errors = $5::jsonb,
+      sql_generated = COALESCE($6, sql_generated),
+      sql_executed = COALESCE($7, sql_executed),
+      metadata = metadata || $8::jsonb,
+      updated_at = now()
+    WHERE id = $1
+    `,
+    [
+      input.agentRunId,
+      input.executionError,
+      input.detectedIntent ?? null,
+      input.validationStatus ?? null,
+      JSON.stringify(sanitizeJsonValue(input.validationErrors ?? [])),
+      input.sqlGenerated ?? null,
+      input.sqlExecuted ?? null,
+      JSON.stringify(sanitizeJsonRecord(input.metadata))
+    ]
+  );
+
+  return getAgentRunById(input.agentRunId);
+}
+
 export async function listAgentRuns(input: {
   status?: string;
   userEmail?: string;

@@ -189,6 +189,129 @@ export function isTableAllowedByPolicy(
   return policy.allowed_tables.includes(tableName);
 }
 
+export function extractSqlTableNames(sql: string): string[] {
+  const matches = sql.match(/\bdev_lakehouse\.main_gold\.[a-zA-Z0-9_]+\b/g) ?? [];
+  return Array.from(new Set(matches.map((tableName) => tableName.toLowerCase())));
+}
+
+export function validateSqlTablesForPolicy(
+  policy: SanitizedProfilePolicy | null,
+  sql: string
+) {
+  const extractedTables = extractSqlTableNames(sql);
+  const blockedTable =
+    extractedTables.find((tableName) => !isTableAllowedByPolicy(policy, tableName)) ?? null;
+
+  return {
+    allowed: Boolean(policy?.is_active) && !blockedTable,
+    blockedTable,
+    extractedTables
+  };
+}
+
+export async function enforceCanGenerateSql(profile: string) {
+  const policy = await getProfilePolicy(profile);
+
+  if (!policy) {
+    return {
+      allowed: false as const,
+      policy,
+      reason: "profile_policy_not_found"
+    };
+  }
+
+  if (!policy.can_generate_sql) {
+    return {
+      allowed: false as const,
+      policy,
+      reason: "profile_cannot_generate_sql"
+    };
+  }
+
+  return { allowed: true as const, policy, reason: null };
+}
+
+export function enforceIntentPolicy(
+  policy: SanitizedProfilePolicy | null,
+  intent: string
+) {
+  if (isIntentAllowedByPolicy(policy, intent)) {
+    return { allowed: true as const, reason: null };
+  }
+
+  return {
+    allowed: false as const,
+    reason: "profile_not_allowed_for_intent"
+  };
+}
+
+export function enforceSqlTablePolicy(
+  policy: SanitizedProfilePolicy | null,
+  sql: string
+) {
+  const result = validateSqlTablesForPolicy(policy, sql);
+
+  if (result.allowed) {
+    return {
+      allowed: true as const,
+      reason: null,
+      blockedTable: result.blockedTable,
+      extractedTables: result.extractedTables
+    };
+  }
+
+  return {
+    allowed: false as const,
+    reason: result.extractedTables.length
+      ? "profile_not_allowed_for_table"
+      : "no_allowed_tables_detected",
+    blockedTable: result.blockedTable,
+    extractedTables: result.extractedTables
+  };
+}
+
+export async function enforceCanExecuteSql(profile: string) {
+  const policy = await getProfilePolicy(profile);
+
+  if (!policy) {
+    return {
+      allowed: false as const,
+      policy,
+      reason: "profile_policy_not_found"
+    };
+  }
+
+  if (!policy.can_execute_sql) {
+    return {
+      allowed: false as const,
+      policy,
+      reason: "profile_cannot_execute_sql"
+    };
+  }
+
+  return { allowed: true as const, policy, reason: null };
+}
+
+export function buildPolicyDeniedResponse(reason: string) {
+  const messages: Record<string, string> = {
+    profile_policy_not_found: "Seu perfil não possui uma política ativa configurada.",
+    profile_cannot_generate_sql: "Seu perfil não possui permissão para gerar consultas SQL.",
+    profile_not_allowed_for_intent:
+      "Seu perfil não possui permissão para consultar esse tipo de informação.",
+    profile_not_allowed_for_table:
+      "Seu perfil não possui permissão para consultar uma das tabelas solicitadas.",
+    profile_cannot_execute_sql: "Seu perfil não possui permissão para executar consultas SQL.",
+    no_allowed_tables_detected:
+      "Não foi possível identificar tabelas permitidas na consulta gerada."
+  };
+
+  return {
+    success: false,
+    error: reason,
+    message: messages[reason] ?? "Ação bloqueada pela política do perfil."
+  };
+}
+
 export async function canProfileGenerateSql(profile: string) {
   return Boolean((await getProfilePolicy(profile))?.can_generate_sql);
 }

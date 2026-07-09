@@ -9,6 +9,9 @@ export type GenerateSqlResponse = {
   raw: unknown;
   run_id?: string;
   agent_run_id?: string;
+  can_view_sql?: boolean;
+  sql_hidden?: boolean;
+  message?: string;
   cache?: SqlGenerationCacheMetadata;
   error?: string;
 };

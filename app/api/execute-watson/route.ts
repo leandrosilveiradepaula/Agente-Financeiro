@@ -1,7 +1,17 @@
 import { NextResponse } from "next/server";
-import { updateAgentRunExecution } from "@/lib/agent-runs";
+import {
+  createAgentRun,
+  getAgentRunById,
+  markAgentRunBlocked,
+  updateAgentRunExecution
+} from "@/lib/agent-runs";
 import { N8N_WATSON_ORCHESTRATE_ENDPOINT } from "@/lib/n8n-endpoint";
-import { requireAgentSession } from "@/lib/server-auth";
+import {
+  buildPolicyDeniedResponse,
+  enforceCanExecuteSql,
+  enforceSqlTablePolicy
+} from "@/lib/profile-policy";
+import { getRequestMetadata, requireAgentSession } from "@/lib/server-auth";
 import { logger } from "@/lib/server-logger";
 import type { ExecuteWatsonResponse } from "@/lib/types";
 import { normalizeWatsonResult } from "@/lib/watson-result-normalization";
@@ -72,14 +82,31 @@ export async function POST(request: Request) {
 
   const record = isRecord(body) ? body : {};
   const pergunta = asString(record.pergunta).trim();
-  const sql = asString(record.sql).trim();
+  const receivedSql = asString(record.sql).trim();
   const requestedRunId =
     asString(record.agent_run_id).trim() || asString(record.run_id).trim();
+  const agentRunId = isUuid(requestedRunId) ? requestedRunId : null;
 
   if (!pergunta) {
     logger.warn("execute_watson.empty_question", { requestId });
     return errorResponse("Informe a pergunta original para executar no Watson.", 400);
   }
+
+  const existingRun = agentRunId ? await getAgentRunById(agentRunId) : null;
+
+  if (agentRunId && !existingRun) {
+    return errorResponse("Histórico de execução não encontrado.", 404);
+  }
+
+  if (
+    existingRun &&
+    session.userProfile !== "admin" &&
+    existingRun.user_id !== session.userId
+  ) {
+    return errorResponse("Histórico de execução não pertence ao usuário logado.", 403);
+  }
+
+  const sql = receivedSql || existingRun?.sql_generated?.trim() || "";
 
   if (!sql) {
     logger.warn("execute_watson.empty_sql", { requestId });
@@ -87,6 +114,100 @@ export async function POST(request: Request) {
   }
 
   const webhookUrl = N8N_WATSON_ORCHESTRATE_ENDPOINT;
+  const executePolicy = await enforceCanExecuteSql(session.userProfile);
+  const activeSession = session;
+
+  async function ensureBlockedRun(reason: string, metadata: Record<string, unknown>) {
+    if (agentRunId) {
+      await markAgentRunBlocked({
+        agentRunId,
+        executionError: reason,
+        sqlExecuted: sql || null,
+        metadata
+      });
+      return agentRunId;
+    }
+
+    const requestMetadata = await getRequestMetadata();
+    const blockedRun = await createAgentRun({
+      requestId,
+      session: activeSession,
+      pergunta,
+      metadata: requestMetadata,
+      extraMetadata: {
+        operation: "execute_watson_blocked_without_run_id"
+      }
+    });
+
+    await markAgentRunBlocked({
+      agentRunId: blockedRun.id,
+      executionError: reason,
+      sqlExecuted: sql || null,
+      metadata
+    });
+
+    return blockedRun.id;
+  }
+
+  if (!executePolicy.allowed) {
+    const blockedRunId = await ensureBlockedRun(executePolicy.reason, {
+      policy_reason: {
+        profile: session.userProfile,
+        reason: executePolicy.reason
+      }
+    });
+
+    return NextResponse.json(
+      {
+        ...buildPolicyDeniedResponse(executePolicy.reason),
+        query_id: "",
+        execution_time_ms: null,
+        row_count: 0,
+        columns: [],
+        data: [],
+        raw: null,
+        truncated: false,
+        error_message: executePolicy.reason,
+        agent_run_id: blockedRunId,
+        run_id: blockedRunId
+      } satisfies ExecuteWatsonResponse,
+      { status: 403 }
+    );
+  }
+
+  const tablePolicy = enforceSqlTablePolicy(executePolicy.policy, sql);
+  const noTablesAllowed =
+    tablePolicy.reason === "no_allowed_tables_detected" && session.userProfile === "admin";
+
+  if (!tablePolicy.allowed && !noTablesAllowed) {
+    const blockedRunId = await ensureBlockedRun(tablePolicy.reason, {
+      policy_reason: {
+        profile: session.userProfile,
+        blocked_table: tablePolicy.blockedTable,
+        extracted_tables: tablePolicy.extractedTables,
+        allowed_tables: executePolicy.policy.allowed_tables,
+        denied_tables: executePolicy.policy.denied_tables
+      }
+    });
+
+    return NextResponse.json(
+      {
+        ...buildPolicyDeniedResponse(tablePolicy.reason),
+        query_id: "",
+        execution_time_ms: null,
+        row_count: 0,
+        columns: [],
+        data: [],
+        raw: null,
+        truncated: false,
+        error_message: tablePolicy.reason,
+        agent_run_id: blockedRunId,
+        run_id: blockedRunId
+      } satisfies ExecuteWatsonResponse,
+      { status: 403 }
+    );
+  }
+
   const internalWebhookToken = process.env.N8N_INTERNAL_WEBHOOK_TOKEN || "";
 
   if (!internalWebhookToken) {
@@ -98,8 +219,6 @@ export async function POST(request: Request) {
 
     return errorResponse("Token interno do serviço de orquestração não configurado.", 500);
   }
-
-  const agentRunId = isUuid(requestedRunId) ? requestedRunId : null;
 
   try {
     logger.info("execute_watson.request_started", {

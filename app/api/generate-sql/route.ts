@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 import {
   createAgentRun,
+  markAgentRunBlocked,
   updateAgentRunGeneratedSql
 } from "@/lib/agent-runs";
 import { normalizeGenerateSqlResponse } from "@/lib/generate-sql-normalization";
 import { N8N_WATSON_ORCHESTRATE_ENDPOINT } from "@/lib/n8n-endpoint";
+import {
+  buildPolicyDeniedResponse,
+  enforceCanGenerateSql,
+  enforceIntentPolicy,
+  enforceSqlTablePolicy
+} from "@/lib/profile-policy";
 import { getRequestMetadata, requireAgentSession } from "@/lib/server-auth";
 import { logger } from "@/lib/server-logger";
 import { AGENT_VERSION, type GenerateSqlResponse } from "@/lib/types";
@@ -168,6 +175,38 @@ export async function POST(request: Request) {
       }
     }
   });
+  const generatePolicy = await enforceCanGenerateSql(session.userProfile);
+
+  if (!generatePolicy.allowed) {
+    await markAgentRunBlocked({
+      agentRunId: agentRun.id,
+      executionError: generatePolicy.reason,
+      metadata: {
+        policy_reason: {
+          profile: session.userProfile,
+          reason: generatePolicy.reason
+        }
+      }
+    });
+
+    return NextResponse.json(
+      {
+        ...buildPolicyDeniedResponse(generatePolicy.reason),
+        agent_version: AGENT_VERSION,
+        detected_intent: "nao_informado",
+        validation_status: "erro",
+        sql: "",
+        raw: null,
+        can_view_sql: false,
+        sql_hidden: true,
+        agent_run_id: agentRun.id,
+        run_id: agentRun.run_id ?? agentRun.id
+      } satisfies GenerateSqlResponse,
+      { status: 403 }
+    );
+  }
+
+  const policy = generatePolicy.policy;
 
   try {
     logger.info("generate_sql.request_started", {
@@ -298,6 +337,122 @@ export async function POST(request: Request) {
       );
     }
 
+    const intentPolicy = enforceIntentPolicy(
+      policy,
+      normalizedWithCache.detected_intent
+    );
+
+    if (!intentPolicy.allowed) {
+      await markAgentRunBlocked({
+        agentRunId: agentRun.id,
+        executionError: intentPolicy.reason,
+        validationStatus: normalizedWithCache.validation_status,
+        sqlGenerated: normalizedWithCache.sql,
+        metadata: {
+          policy_reason: {
+            profile: session.userProfile,
+            intent: normalizedWithCache.detected_intent,
+            message:
+              "Seu perfil não possui permissão para consultar esse tipo de informação."
+          }
+        }
+      });
+
+      return NextResponse.json(
+        {
+          ...buildPolicyDeniedResponse(intentPolicy.reason),
+          agent_version: normalizedWithCache.agent_version,
+          detected_intent: normalizedWithCache.detected_intent,
+          validation_status: normalizedWithCache.validation_status,
+          sql: "",
+          raw: null,
+          can_view_sql: policy.can_view_sql,
+          sql_hidden: true,
+          agent_run_id: agentRun.id,
+          run_id: agentRun.run_id ?? agentRun.id,
+          cache: normalizedWithCache.cache
+        } satisfies GenerateSqlResponse,
+        { status: 403 }
+      );
+    }
+
+    const tablePolicy = enforceSqlTablePolicy(policy, normalizedWithCache.sql);
+    const noTablesAllowed =
+      tablePolicy.reason === "no_allowed_tables_detected" && session.userProfile === "admin";
+
+    if (!tablePolicy.allowed && !noTablesAllowed) {
+      await markAgentRunBlocked({
+        agentRunId: agentRun.id,
+        executionError: tablePolicy.reason,
+        detectedIntent: normalizedWithCache.detected_intent,
+        validationStatus: normalizedWithCache.validation_status,
+        sqlGenerated: normalizedWithCache.sql,
+        metadata: {
+          policy_reason: {
+            profile: session.userProfile,
+            blocked_table: tablePolicy.blockedTable,
+            extracted_tables: tablePolicy.extractedTables,
+            allowed_tables: policy.allowed_tables,
+            denied_tables: policy.denied_tables
+          }
+        }
+      });
+
+      return NextResponse.json(
+        {
+          ...buildPolicyDeniedResponse(tablePolicy.reason),
+          agent_version: normalizedWithCache.agent_version,
+          detected_intent: normalizedWithCache.detected_intent,
+          validation_status: normalizedWithCache.validation_status,
+          sql: "",
+          raw: null,
+          can_view_sql: policy.can_view_sql,
+          sql_hidden: true,
+          agent_run_id: agentRun.id,
+          run_id: agentRun.run_id ?? agentRun.id,
+          cache: normalizedWithCache.cache
+        } satisfies GenerateSqlResponse,
+        { status: 403 }
+      );
+    }
+
+    if (!webhookResponse.ok) {
+      logger.warn("generate_sql.webhook_non_ok", {
+        requestId,
+        userId: session.userId,
+        userProfile: session.userProfile,
+        status: webhookResponse.status
+      });
+
+      await updateAgentRunGeneratedSql({
+        id: agentRun.id,
+        detectedIntent: normalizedWithCache.detected_intent,
+        intentConfidence: readIntentConfidence(raw),
+        sqlGenerated: normalizedWithCache.sql,
+        validationStatus: normalizedWithCache.validation_status,
+        executionStatus: "failed",
+        executionError:
+          normalizedWithCache.error ||
+          `O serviço de orquestração retornou status ${webhookResponse.status}.`,
+        metadata: {
+          n8n_status_code: webhookResponse.status
+        }
+      });
+
+      return NextResponse.json(
+        {
+          ...normalizedWithCache,
+          run_id: agentRun.run_id ?? agentRun.id,
+          agent_run_id: agentRun.id,
+          success: false,
+          error:
+            normalizedWithCache.error ||
+            `O serviço de orquestração retornou status ${webhookResponse.status}.`
+        },
+        { status: webhookResponse.status }
+      );
+    }
+
     logger.info("generate_sql.request_completed", {
       requestId,
       userId: session.userId,
@@ -325,11 +480,17 @@ export async function POST(request: Request) {
       }
     });
 
-    return NextResponse.json({
+    const responsePayload: GenerateSqlResponse = {
       ...normalizedWithCache,
+      sql: policy.can_view_sql ? normalizedWithCache.sql : "",
+      raw: policy.can_view_sql ? normalizedWithCache.raw : null,
+      can_view_sql: policy.can_view_sql,
+      sql_hidden: !policy.can_view_sql,
       run_id: agentRun.run_id ?? agentRun.id,
       agent_run_id: agentRun.id
-    });
+    };
+
+    return NextResponse.json(responsePayload);
   } catch (error) {
     logger.error("generate_sql.request_failed", {
       requestId,
