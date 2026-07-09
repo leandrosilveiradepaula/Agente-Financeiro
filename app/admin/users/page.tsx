@@ -486,6 +486,15 @@ export default function AdminUsersPage() {
                   Histórico
                 </Link>
               ) : null}
+              {accountPolicy?.can_manage_users ? (
+                <Link
+                  href="/admin/profile-policies"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-800 shadow-sm transition hover:border-blue-300 hover:bg-blue-100"
+                >
+                  <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                  Políticas
+                </Link>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {

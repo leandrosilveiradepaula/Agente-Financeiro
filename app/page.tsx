@@ -1077,6 +1077,15 @@ export default function Home() {
               ) : null}
               {accountPolicy?.can_manage_users ? (
                 <Link
+                  href="/admin/profile-policies"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-ink shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
+                >
+                  <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                  Políticas
+                </Link>
+              ) : null}
+              {accountPolicy?.can_manage_users ? (
+                <Link
                   href="/admin/users"
                   className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-800 shadow-sm transition hover:border-blue-300 hover:bg-blue-100"
                 >
