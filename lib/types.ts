@@ -13,9 +13,18 @@ export type GenerateSqlResponse = {
   sql_hidden?: boolean;
   message?: string;
   cache?: SqlGenerationCacheMetadata;
+  llm_provider?: string | null;
+  llm_model?: string | null;
+  llm_prompt_tokens?: number | null;
+  llm_completion_tokens?: number | null;
+  llm_total_tokens?: number | null;
+  llm_usage_source?: string | null;
+  sql_cache_hit?: boolean | null;
+  sql_cache_source_run_id?: string | null;
   sql_cache_saved_prompt_tokens?: number | null;
   sql_cache_saved_completion_tokens?: number | null;
   sql_cache_saved_total_tokens?: number | null;
+  estimated_cost_usd?: number | null;
   estimated_savings_usd?: number | null;
   error?: string;
 };

@@ -13,6 +13,7 @@ import {
   Users,
   X
 } from "lucide-react";
+import { LlmUsageSummary } from "@/components/LlmUsageSummary";
 
 type AuthenticatedUser = {
   id: string;
@@ -59,6 +60,19 @@ type AgentRun = {
   n8n_status_code: number | null;
   watson_status_code: number | null;
   metadata: JsonValue;
+  llm_provider: string | null;
+  llm_model: string | null;
+  llm_prompt_tokens: number | null;
+  llm_completion_tokens: number | null;
+  llm_total_tokens: number | null;
+  llm_usage_source: string | null;
+  sql_cache_hit: boolean | null;
+  sql_cache_source_run_id: string | null;
+  sql_cache_saved_prompt_tokens: number | null;
+  sql_cache_saved_completion_tokens: number | null;
+  sql_cache_saved_total_tokens: number | null;
+  estimated_cost_usd: number | string | null;
+  estimated_savings_usd: number | string | null;
   can_view_sql?: boolean;
   sql_hidden?: boolean;
   sql_preview?: string | null;
@@ -109,6 +123,19 @@ function formatDate(value: string | null) {
 function formatDuration(value: number | null) {
   if (typeof value !== "number") return "-";
   return `${value} ms`;
+}
+
+function formatNumber(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? new Intl.NumberFormat("pt-BR").format(value)
+    : "-";
+}
+
+function formatPercent(value: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "percent",
+    maximumFractionDigits: 1
+  }).format(value);
 }
 
 function statusLabel(status: string) {
@@ -217,6 +244,22 @@ export default function AdminRunsPage() {
     }),
     [runs]
   );
+
+  const iaEfficiency = useMemo(() => {
+    const cacheHits = runs.filter((run) => run.sql_cache_hit === true).length;
+    const totalTokens = runs.reduce((sum, run) => sum + (run.llm_total_tokens ?? 0), 0);
+    const savedTokens = runs.reduce(
+      (sum, run) => sum + (run.sql_cache_saved_total_tokens ?? 0),
+      0
+    );
+
+    return {
+      totalTokens,
+      savedTokens,
+      cacheHits,
+      cacheRate: runs.length > 0 ? cacheHits / runs.length : 0
+    };
+  }, [runs]);
 
   const intentOptions = useMemo(
     () =>
@@ -501,6 +544,19 @@ export default function AdminRunsPage() {
           <SummaryCard label="Pendentes/Geradas" value={summary.pendingOrGenerated} tone="info" />
         </section>
 
+        <section className="rounded-md border border-blue-200 bg-blue-50 p-4 shadow-soft">
+          <h2 className="text-lg font-semibold text-blue-950">Eficiência de IA</h2>
+          <p className="text-xs font-medium text-blue-900">
+            Resumo calculado sobre os registros carregados na tela.
+          </p>
+          <div className="mt-3 grid gap-3 md:grid-cols-4">
+            <EfficiencyMetric label="Tokens consumidos" value={formatNumber(iaEfficiency.totalTokens)} />
+            <EfficiencyMetric label="Tokens economizados" value={formatNumber(iaEfficiency.savedTokens)} />
+            <EfficiencyMetric label="Consultas via cache" value={String(iaEfficiency.cacheHits)} />
+            <EfficiencyMetric label="Taxa de cache" value={formatPercent(iaEfficiency.cacheRate)} />
+          </div>
+        </section>
+
         <form
           onSubmit={applyFilters}
           className="grid gap-4 rounded-md border border-slate-200 bg-white p-4 shadow-soft lg:grid-cols-[160px_1fr_1fr_140px_auto_auto]"
@@ -588,6 +644,8 @@ export default function AdminRunsPage() {
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Linhas</th>
                   <th className="px-4 py-3">Tempo</th>
+                  <th className="px-4 py-3">IA</th>
+                  <th className="px-4 py-3">Cache</th>
                   <th className="px-4 py-3">Erro</th>
                   <th className="px-4 py-3">Ações</th>
                 </tr>
@@ -595,7 +653,7 @@ export default function AdminRunsPage() {
               <tbody className="divide-y divide-slate-100">
                 {runs.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="px-4 py-8 text-center text-sm font-medium text-steel">
+                    <td colSpan={12} className="px-4 py-8 text-center text-sm font-medium text-steel">
                       Nenhuma execução encontrada.
                     </td>
                   </tr>
@@ -620,6 +678,12 @@ export default function AdminRunsPage() {
                       <td className="px-4 py-3 text-steel">{run.row_count ?? "-"}</td>
                       <td className="px-4 py-3 text-steel">
                         {formatDuration(run.execution_time_ms ?? run.total_time_ms)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <LlmRunBadge run={run} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <CacheRunBadge run={run} />
                       </td>
                       <td className="max-w-xs px-4 py-3 text-rose-700" title={run.execution_error ?? ""}>
                         <span className="line-clamp-2">{run.execution_error ?? "-"}</span>
@@ -699,6 +763,57 @@ function SummaryCard({
   );
 }
 
+function EfficiencyMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-blue-100 bg-white px-3 py-2">
+      <p className="text-xs font-bold uppercase tracking-wide text-steel">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-ink">{value}</p>
+    </div>
+  );
+}
+
+function LlmRunBadge({ run }: { run: AgentRun }) {
+  if (typeof run.llm_total_tokens !== "number") {
+    return <span className="text-sm text-steel">-</span>;
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="w-fit rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800">
+        IA
+      </span>
+      <span className="text-xs font-semibold text-steel">
+        {formatNumber(run.llm_total_tokens)} tokens
+      </span>
+    </div>
+  );
+}
+
+function CacheRunBadge({ run }: { run: AgentRun }) {
+  if (run.sql_cache_hit !== true) {
+    return typeof run.sql_cache_hit === "boolean" ? (
+      <span className="w-fit rounded-md border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">
+        Miss
+      </span>
+    ) : (
+      <span className="text-sm text-steel">-</span>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="w-fit rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
+        Cache
+      </span>
+      {typeof run.sql_cache_saved_total_tokens === "number" ? (
+        <span className="text-xs font-semibold text-steel">
+          Economizou {formatNumber(run.sql_cache_saved_total_tokens)} tokens
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function RunDetails({ run, onCopy }: { run: AgentRun; onCopy: (value: string | null, label: string) => void }) {
   const rows = jsonObjectRows(run.data_preview);
   const columns = jsonArray(run.columns).map(String);
@@ -740,6 +855,35 @@ function RunDetails({ run, onCopy }: { run: AgentRun; onCopy: (value: string | n
           <SqlSection title="SQL executada" value={run.sql_executed} onCopy={() => onCopy(run.sql_executed, "SQL executada")} />
         </>
       )}
+
+      <DetailSection title="Consumo de IA e cache">
+        <LlmUsageSummary
+          llmProvider={run.llm_provider}
+          llmModel={run.llm_model}
+          llmPromptTokens={run.llm_prompt_tokens}
+          llmCompletionTokens={run.llm_completion_tokens}
+          llmTotalTokens={run.llm_total_tokens}
+          llmUsageSource={run.llm_usage_source}
+          sqlCacheHit={run.sql_cache_hit}
+          sqlCacheSavedTotalTokens={run.sql_cache_saved_total_tokens}
+          estimatedCostUsd={run.estimated_cost_usd}
+          estimatedSavingsUsd={run.estimated_savings_usd}
+          compact
+        />
+        <div className="mt-3 grid gap-3 text-sm md:grid-cols-2">
+          <DetailItem label="Provedor" value={run.llm_provider ?? "-"} />
+          <DetailItem label="Modelo" value={run.llm_model ?? "-"} />
+          <DetailItem label="Tokens de prompt" value={formatNumber(run.llm_prompt_tokens)} />
+          <DetailItem label="Tokens de resposta" value={formatNumber(run.llm_completion_tokens)} />
+          <DetailItem label="Tokens totais" value={formatNumber(run.llm_total_tokens)} />
+          <DetailItem label="Fonte do uso" value={run.llm_usage_source ?? "-"} />
+          <DetailItem label="Cache utilizado" value={run.sql_cache_hit ? "Sim" : "Não"} />
+          <DetailItem label="Tokens economizados" value={formatNumber(run.sql_cache_saved_total_tokens)} />
+          <DetailItem label="Run original do cache" value={run.sql_cache_source_run_id ?? "-"} />
+          <DetailItem label="Custo estimado" value={run.estimated_cost_usd === null ? "-" : String(run.estimated_cost_usd)} />
+          <DetailItem label="Economia estimada" value={run.estimated_savings_usd === null ? "-" : String(run.estimated_savings_usd)} />
+        </div>
+      </DetailSection>
 
       <DetailSection title="Resultado">
         {rows.length > 0 ? (

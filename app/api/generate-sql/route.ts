@@ -684,9 +684,18 @@ export async function POST(request: Request) {
       sql_hidden: !policy.can_view_sql,
       run_id: agentRun.run_id ?? agentRun.id,
       agent_run_id: agentRun.id,
+      llm_provider: llmPersistence.llmProvider,
+      llm_model: llmPersistence.llmModel,
+      llm_prompt_tokens: llmPersistence.llmPromptTokens,
+      llm_completion_tokens: llmPersistence.llmCompletionTokens,
+      llm_total_tokens: llmPersistence.llmTotalTokens,
+      llm_usage_source: llmPersistence.llmUsageSource,
+      sql_cache_hit: llmPersistence.sqlCacheHit,
+      sql_cache_source_run_id: llmPersistence.sqlCacheSourceRunId,
       sql_cache_saved_prompt_tokens: llmPersistence.sqlCacheSavedPromptTokens,
       sql_cache_saved_completion_tokens: llmPersistence.sqlCacheSavedCompletionTokens,
       sql_cache_saved_total_tokens: llmPersistence.sqlCacheSavedTotalTokens,
+      estimated_cost_usd: llmPersistence.estimatedCostUsd,
       estimated_savings_usd: llmPersistence.estimatedSavingsUsd
     };
 

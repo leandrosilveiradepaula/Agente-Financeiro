@@ -26,6 +26,7 @@ import { ExecutiveSummary } from "@/components/ExecutiveSummary";
 import { ExecutiveReportActions } from "@/components/ExecutiveReportActions";
 import { InterfaceSettingsPanel } from "@/components/InterfaceSettingsPanel";
 import { LoadingState } from "@/components/LoadingState";
+import { LlmUsageSummary } from "@/components/LlmUsageSummary";
 import { ManualWatsonResultInput } from "@/components/ManualWatsonResultInput";
 import { QueryHistoryPanel } from "@/components/QueryHistoryPanel";
 import { QuestionInput } from "@/components/QuestionInput";
@@ -1316,6 +1317,23 @@ export default function Home() {
               <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
                 {execution.message}
               </div>
+            ) : null}
+
+            {generation.response?.success &&
+            (generation.response.sql_cache_hit === true ||
+              typeof generation.response.llm_total_tokens === "number") ? (
+              <LlmUsageSummary
+                llmProvider={generation.response.llm_provider}
+                llmModel={generation.response.llm_model}
+                llmPromptTokens={generation.response.llm_prompt_tokens}
+                llmCompletionTokens={generation.response.llm_completion_tokens}
+                llmTotalTokens={generation.response.llm_total_tokens}
+                llmUsageSource={generation.response.llm_usage_source}
+                sqlCacheHit={generation.response.sql_cache_hit}
+                sqlCacheSavedTotalTokens={generation.response.sql_cache_saved_total_tokens}
+                estimatedCostUsd={generation.response.estimated_cost_usd}
+                estimatedSavingsUsd={generation.response.estimated_savings_usd}
+              />
             ) : null}
 
             {isSqlHidden ? (
