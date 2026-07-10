@@ -35,6 +35,18 @@ function historyStatusLabel(item: QueryHistoryItem) {
   return "Gerada";
 }
 
+function cacheStatusLabel(item: QueryHistoryItem) {
+  if (item.cache_enabled === undefined) {
+    return "";
+  }
+
+  if (!item.cache_enabled) {
+    return "cache off";
+  }
+
+  return item.cache_hit ? "cache hit" : "cache miss";
+}
+
 export function QueryHistoryPanel({
   items = [],
   onSelectItem = () => undefined,
@@ -103,6 +115,11 @@ export function QueryHistoryPanel({
                 </span>
                 {item.query_id ? (
                   <span className="rounded-md bg-white px-2 py-1">ID {item.query_id}</span>
+                ) : null}
+                {cacheStatusLabel(item) ? (
+                  <span className="rounded-md bg-white px-2 py-1">
+                    {cacheStatusLabel(item)}
+                  </span>
                 ) : null}
                 {item.pdfExported ? (
                   <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-blue-700">

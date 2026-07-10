@@ -3,18 +3,47 @@
 import Editor from "@monaco-editor/react";
 import { Check, Clipboard, FileCode2 } from "lucide-react";
 import { useState } from "react";
+import type { SqlGenerationCacheMetadata } from "@/lib/types";
 
 type SqlEditorProps = {
   sql: string;
+  canCopy?: boolean;
   onSqlChange: (value: string) => void;
+  cache?: SqlGenerationCacheMetadata;
 };
 
-export function SqlEditor({ sql, onSqlChange }: SqlEditorProps) {
+function cacheBadge(cache?: SqlGenerationCacheMetadata) {
+  if (!cache) {
+    return null;
+  }
+
+  if (cache.hit) {
+    return {
+      label: "SQL reaproveitada do cache",
+      className: "border-emerald-200 bg-emerald-50 text-emerald-800"
+    };
+  }
+
+  if (cache.enabled) {
+    return {
+      label: "Cache consultado — nova SQL gerada",
+      className: "border-blue-200 bg-blue-50 text-blue-800"
+    };
+  }
+
+  return {
+    label: "Cache desativado — SQL gerada por IA",
+    className: "border-slate-200 bg-slate-50 text-slate-700"
+  };
+}
+
+export function SqlEditor({ sql, canCopy = true, onSqlChange, cache }: SqlEditorProps) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState("");
+  const badge = cacheBadge(cache);
 
   async function copySql() {
-    if (!sql.trim()) {
+    if (!canCopy || !sql.trim()) {
       return;
     }
 
@@ -31,13 +60,18 @@ export function SqlEditor({ sql, onSqlChange }: SqlEditorProps) {
   return (
     <section className="rounded-md border border-slate-200 bg-white p-4 shadow-soft">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <FileCode2 className="h-5 w-5 text-lake" aria-hidden="true" />
           <h2 className="text-lg font-semibold text-ink">SQL gerada</h2>
+          {badge ? (
+            <span className={`rounded-md border px-2 py-1 text-xs font-semibold ${badge.className}`}>
+              {badge.label}
+            </span>
+          ) : null}
         </div>
         <button
           type="button"
-          disabled={!sql.trim()}
+          disabled={!canCopy || !sql.trim()}
           onClick={copySql}
           className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-ink shadow-sm transition hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
         >

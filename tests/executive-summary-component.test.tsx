@@ -43,7 +43,7 @@ describe("ExecutiveSummary", () => {
       highlights: ["Ranking utilizado: ranking_geral."],
       warnings: ["Receita de Vendas não deve entrar nesta leitura de estouro de orçamento."],
       intent: "estouro_orcamento",
-      generated_by: "n8n"
+      generated_by: "watson_orchestration"
     };
     const onSummaryGenerated = vi.fn();
     const view = render(
@@ -59,7 +59,7 @@ describe("ExecutiveSummary", () => {
     expect(view.textContent).toContain("A análise identifica os maiores estouros de orçamento");
     expect(view.textContent).toContain("Ranking utilizado: ranking_geral.");
     expect(view.textContent).toContain("Receita de Vendas não deve entrar nesta leitura");
-    expect(view.textContent).toContain("Resumo executivo gerado pelo backend/n8n.");
+    expect(view.textContent).toContain("Resumo executivo gerado pelo serviço de orquestração.");
     expect(view.textContent).not.toContain("Regerar resumo");
     expect(onSummaryGenerated).toHaveBeenCalledWith(backendSummary);
   });

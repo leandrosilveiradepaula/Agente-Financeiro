@@ -1,7 +1,10 @@
 import type { QueryHistoryItem } from "@/lib/types";
 
-const HISTORY_STORAGE_KEY = "ducklake-sql-agent-history";
 const MAX_HISTORY_ITEMS = 10;
+
+function getHistoryStorageKey(userId?: string | null) {
+  return userId ? `ducklake:query-history:${userId}` : null;
+}
 
 function isHistoryItem(value: unknown): value is QueryHistoryItem {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -22,13 +25,28 @@ function isHistoryItem(value: unknown): value is QueryHistoryItem {
   );
 }
 
-export function readQueryHistory(): QueryHistoryItem[] {
+export function sanitizeQueryHistoryForPolicy(
+  items: QueryHistoryItem[],
+  options: { canViewSql: boolean }
+) {
+  if (options.canViewSql) return items;
+
+  return items.map((item) => ({
+    ...item,
+    sql: ""
+  }));
+}
+
+export function readQueryHistory(userId?: string | null): QueryHistoryItem[] {
   if (typeof window === "undefined") {
     return [];
   }
 
+  const storageKey = getHistoryStorageKey(userId);
+  if (!storageKey) return [];
+
   try {
-    const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey);
 
     if (!raw) {
       return [];
@@ -42,13 +60,16 @@ export function readQueryHistory(): QueryHistoryItem[] {
   }
 }
 
-export function writeQueryHistory(items: QueryHistoryItem[]) {
+export function writeQueryHistory(items: QueryHistoryItem[], userId?: string | null) {
   if (typeof window === "undefined") {
     return;
   }
 
+  const storageKey = getHistoryStorageKey(userId);
+  if (!storageKey) return;
+
   window.localStorage.setItem(
-    HISTORY_STORAGE_KEY,
+    storageKey,
     JSON.stringify(items.slice(0, MAX_HISTORY_ITEMS))
   );
 }

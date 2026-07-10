@@ -21,6 +21,8 @@ function makeItem(overrides: Partial<QueryHistoryItem> = {}): QueryHistoryItem {
 }
 
 describe("query history helpers", () => {
+  const userId = "user-1";
+
   beforeEach(() => {
     window.localStorage.clear();
   });
@@ -32,9 +34,9 @@ describe("query history helpers", () => {
   it("writes and reads valid history items", () => {
     const item = makeItem();
 
-    writeQueryHistory([item]);
+    writeQueryHistory([item], userId);
 
-    expect(readQueryHistory()).toEqual([item]);
+    expect(readQueryHistory(userId)).toEqual([item]);
   });
 
   it("deduplicates by question and SQL", () => {
@@ -60,5 +62,12 @@ describe("query history helpers", () => {
     window.localStorage.setItem("ducklake-sql-agent-history", JSON.stringify([{ id: 1 }]));
 
     expect(readQueryHistory()).toEqual([]);
+  });
+
+  it("ignores legacy global history even when it is valid", () => {
+    const item = makeItem();
+    window.localStorage.setItem("ducklake-sql-agent-history", JSON.stringify([item]));
+
+    expect(readQueryHistory(userId)).toEqual([]);
   });
 });

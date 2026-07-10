@@ -57,4 +57,53 @@ describe("normalizeGenerateSqlResponse", () => {
 
     expect(response.validation_status).toBe("erro");
   });
+
+  it("normalizes SQL cache metadata from cache", () => {
+    const response = normalizeGenerateSqlResponse({
+      success: true,
+      sql: "SELECT * FROM dev_lakehouse.main_gold.resultado LIMIT 10",
+      cache: {
+        enabled: true,
+        hit: true,
+        source: "sql_generation_cache",
+        status: "hit_validated",
+        cache_id: "abc",
+        hit_count: 3
+      }
+    });
+
+    expect(response.cache).toMatchObject({
+      enabled: true,
+      hit: true,
+      source: "sql_generation_cache",
+      status: "hit_validated",
+      cache_id: "abc",
+      hit_count: 3
+    });
+  });
+
+  it("normalizes disabled SQL cache metadata from metadata.cache", () => {
+    const response = normalizeGenerateSqlResponse({
+      success: true,
+      sql: "SELECT * FROM dev_lakehouse.main_gold.resultado LIMIT 10",
+      metadata: {
+        cache: {
+          enabled: false,
+          hit: false,
+          source: "disabled_by_user"
+        }
+      }
+    });
+
+    expect(response.cache).toEqual({
+      enabled: false,
+      hit: false,
+      source: "disabled_by_user",
+      cache_key: undefined,
+      cache_id: undefined,
+      status: undefined,
+      hit_count: undefined,
+      created_at: undefined
+    });
+  });
 });

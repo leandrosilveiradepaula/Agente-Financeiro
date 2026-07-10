@@ -1,7 +1,10 @@
 import type { ExecutiveReportHistoryItem } from "@/lib/types";
 
-const EXECUTIVE_REPORT_HISTORY_STORAGE_KEY = "ducklake-sql-agent-executive-report-history";
 const MAX_EXECUTIVE_REPORT_HISTORY_ITEMS = 30;
+
+function getExecutiveReportHistoryStorageKey(userId?: string | null) {
+  return userId ? `ducklake:report-history:${userId}` : null;
+}
 
 function isExecutiveReportHistoryItem(value: unknown): value is ExecutiveReportHistoryItem {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -31,13 +34,28 @@ function sortReports(items: ExecutiveReportHistoryItem[]) {
   );
 }
 
-export function readExecutiveReportHistory(): ExecutiveReportHistoryItem[] {
+export function sanitizeExecutiveReportHistoryForPolicy(
+  items: ExecutiveReportHistoryItem[],
+  options: { canViewSql: boolean }
+) {
+  if (options.canViewSql) return items;
+
+  return items.map((item) => ({
+    ...item,
+    sql: ""
+  }));
+}
+
+export function readExecutiveReportHistory(userId?: string | null): ExecutiveReportHistoryItem[] {
   if (typeof window === "undefined") {
     return [];
   }
 
+  const storageKey = getExecutiveReportHistoryStorageKey(userId);
+  if (!storageKey) return [];
+
   try {
-    const raw = window.localStorage.getItem(EXECUTIVE_REPORT_HISTORY_STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey);
 
     if (!raw) {
       return [];
@@ -52,20 +70,27 @@ export function readExecutiveReportHistory(): ExecutiveReportHistoryItem[] {
   }
 }
 
-export function writeExecutiveReportHistory(items: ExecutiveReportHistoryItem[]) {
+export function writeExecutiveReportHistory(
+  items: ExecutiveReportHistoryItem[],
+  userId?: string | null
+) {
   if (typeof window === "undefined") {
     return;
   }
 
+  const storageKey = getExecutiveReportHistoryStorageKey(userId);
+  if (!storageKey) return;
+
   window.localStorage.setItem(
-    EXECUTIVE_REPORT_HISTORY_STORAGE_KEY,
+    storageKey,
     JSON.stringify(sortReports(items).slice(0, MAX_EXECUTIVE_REPORT_HISTORY_ITEMS))
   );
 }
 
 export function upsertExecutiveReportHistory(
   currentItems: ExecutiveReportHistoryItem[],
-  nextItem: ExecutiveReportHistoryItem
+  nextItem: ExecutiveReportHistoryItem,
+  userId?: string | null
 ): ExecutiveReportHistoryItem[] {
   if (!nextItem.markdown.trim() || !nextItem.summary.paragraphs.length) {
     return currentItems;
@@ -82,17 +107,20 @@ export function upsertExecutiveReportHistory(
   });
   const nextItems = sortReports([nextItem, ...deduped]).slice(0, MAX_EXECUTIVE_REPORT_HISTORY_ITEMS);
 
-  writeExecutiveReportHistory(nextItems);
+  writeExecutiveReportHistory(nextItems, userId);
   return nextItems;
 }
 
-export function removeExecutiveReportHistory(id: string): ExecutiveReportHistoryItem[] {
-  const nextItems = readExecutiveReportHistory().filter((item) => item.id !== id);
-  writeExecutiveReportHistory(nextItems);
+export function removeExecutiveReportHistory(
+  id: string,
+  userId?: string | null
+): ExecutiveReportHistoryItem[] {
+  const nextItems = readExecutiveReportHistory(userId).filter((item) => item.id !== id);
+  writeExecutiveReportHistory(nextItems, userId);
   return nextItems;
 }
 
-export function clearExecutiveReportHistory() {
-  writeExecutiveReportHistory([]);
+export function clearExecutiveReportHistory(userId?: string | null) {
+  writeExecutiveReportHistory([], userId);
   return [];
 }

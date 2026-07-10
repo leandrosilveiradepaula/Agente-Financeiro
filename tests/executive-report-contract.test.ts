@@ -18,7 +18,7 @@ describe("ExecuteWatsonResponse executive report contract", () => {
         highlights: ["Receita de Vendas pode aparecer na variação geral."],
         warnings: [],
         intent: "orcado_vs_realizado",
-        generated_by: "n8n"
+        generated_by: "watson_orchestration"
       },
       executive_summary: {
         title: "Resumo executivo",
@@ -44,7 +44,7 @@ describe("ExecuteWatsonResponse executive report contract", () => {
         paragraphs: ["peso de cada setor no OPEX"],
         highlights: ["representatividade"],
         intent: "impacto_setor_marca",
-        generated_by: "n8n"
+        generated_by: "watson_orchestration"
       },
       relatorio_executivo_markdown: "# Markdown do backend"
     });
