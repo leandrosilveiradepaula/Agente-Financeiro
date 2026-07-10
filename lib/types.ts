@@ -13,6 +13,10 @@ export type GenerateSqlResponse = {
   sql_hidden?: boolean;
   message?: string;
   cache?: SqlGenerationCacheMetadata;
+  sql_cache_saved_prompt_tokens?: number | null;
+  sql_cache_saved_completion_tokens?: number | null;
+  sql_cache_saved_total_tokens?: number | null;
+  estimated_savings_usd?: number | null;
   error?: string;
 };
 
@@ -55,6 +59,54 @@ export type ExecuteWatsonResponse = {
   run_id?: string;
   agent_run_id?: string;
   error?: string;
+};
+
+export type AgentRun = {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  request_id: string | null;
+  run_id: string | null;
+  user_id: string | null;
+  user_email: string | null;
+  user_name: string | null;
+  user_profile: string | null;
+  auth_source: string | null;
+  pergunta: string;
+  pergunta_normalizada: string | null;
+  detected_intent: string | null;
+  intent_confidence: string | number | null;
+  sql_generated: string | null;
+  sql_executed: string | null;
+  validation_status: string | null;
+  validation_errors: unknown;
+  validation_warnings: unknown;
+  execution_status: string;
+  execution_error: string | null;
+  row_count: number | null;
+  columns: unknown;
+  data_preview: unknown;
+  execution_time_ms: number | null;
+  total_time_ms: number | null;
+  source: string | null;
+  executor_mode: string | null;
+  executor_version: string | null;
+  n8n_status_code: number | null;
+  watson_status_code: number | null;
+  metadata: unknown;
+  llm_provider?: string | null;
+  llm_model?: string | null;
+  llm_prompt_tokens?: number | null;
+  llm_completion_tokens?: number | null;
+  llm_total_tokens?: number | null;
+  llm_usage_source?: string | null;
+  sql_cache_hit?: boolean | null;
+  sql_cache_source_run_id?: string | null;
+  sql_cache_saved_prompt_tokens?: number | null;
+  sql_cache_saved_completion_tokens?: number | null;
+  sql_cache_saved_total_tokens?: number | null;
+  estimated_cost_usd?: number | string | null;
+  estimated_savings_usd?: number | string | null;
 };
 
 export type QueryHistoryItem = {

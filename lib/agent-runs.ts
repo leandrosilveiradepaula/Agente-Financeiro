@@ -65,6 +65,19 @@ export type AgentRunRow = {
   ip_address: string | null;
   user_agent: string | null;
   metadata: unknown;
+  llm_provider: string | null;
+  llm_model: string | null;
+  llm_prompt_tokens: number | null;
+  llm_completion_tokens: number | null;
+  llm_total_tokens: number | null;
+  llm_usage_source: string | null;
+  sql_cache_hit: boolean | null;
+  sql_cache_source_run_id: string | null;
+  sql_cache_saved_prompt_tokens: number | null;
+  sql_cache_saved_completion_tokens: number | null;
+  sql_cache_saved_total_tokens: number | null;
+  estimated_cost_usd: number | string | null;
+  estimated_savings_usd: number | string | null;
 };
 
 export type SanitizedAgentRun = Omit<
@@ -87,6 +100,16 @@ export type SanitizedAgentRunForViewer = SanitizedAgentRun & {
   sql_hidden: boolean;
   sql_preview: string | null;
 };
+
+export function normalizeComparableQuestion(question: string) {
+  return question
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function normalizeQuestion(question: string) {
   return question.trim().replace(/\s+/g, " ").toLowerCase();
@@ -142,6 +165,14 @@ function sanitizeJsonArray(value: unknown): JsonValue {
 
 function asInteger(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? Math.round(value) : null;
+}
+
+function asOptionalInteger(value: number | null | undefined) {
+  return value === undefined ? null : asInteger(value);
+}
+
+function asOptionalDecimal(value: number | null | undefined) {
+  return value === undefined || value === null || !Number.isFinite(value) ? null : value;
 }
 
 function extractRowsPreview(data: ResultRow[] | undefined) {
@@ -202,6 +233,65 @@ async function getRunById(id: string) {
 
 export async function getAgentRunById(id: string) {
   const run = await getRunById(id);
+  return run ? sanitizeAgentRun(run) : null;
+}
+
+export async function findLatestComparableLlmRunForCacheSavings(params: {
+  perguntaNormalizada?: string | null;
+  detectedIntent?: string | null;
+  currentRunId?: string | null;
+  currentCreatedAt?: string | null;
+  sqlGenerated?: string | null;
+}) {
+  if (!params.perguntaNormalizada && !params.detectedIntent && !params.sqlGenerated) {
+    return null;
+  }
+
+  const filters = [
+    "COALESCE(sql_cache_hit, false) = false",
+    "llm_total_tokens IS NOT NULL",
+    "llm_total_tokens > 0",
+    "execution_status IN ('generated', 'executed')"
+  ];
+  const values: string[] = [];
+
+  if (params.currentRunId) {
+    values.push(params.currentRunId);
+    filters.push(`id <> $${values.length}::uuid`);
+  }
+
+  if (params.currentCreatedAt) {
+    values.push(params.currentCreatedAt);
+    filters.push(`created_at < $${values.length}::timestamptz`);
+  }
+
+  if (params.detectedIntent) {
+    values.push(params.detectedIntent);
+    filters.push(`detected_intent = $${values.length}`);
+  }
+
+  if (params.perguntaNormalizada) {
+    values.push(params.perguntaNormalizada);
+    filters.push(`pergunta_normalizada = $${values.length}`);
+  }
+
+  if (params.sqlGenerated && !params.perguntaNormalizada && !params.detectedIntent) {
+    values.push(params.sqlGenerated);
+    filters.push(`sql_generated = $${values.length}`);
+  }
+
+  const result = await db.query<AgentRunRow>(
+    `
+    SELECT *
+    FROM public.ai_agent_runs
+    WHERE ${filters.join(" AND ")}
+    ORDER BY created_at DESC
+    LIMIT 1
+    `,
+    values
+  );
+
+  const run = result.rows[0];
   return run ? sanitizeAgentRun(run) : null;
 }
 
@@ -266,6 +356,19 @@ export async function updateAgentRunGeneratedSql(input: {
   executionStatus?: "generated" | "failed" | "blocked";
   executionError?: string | null;
   metadata?: Record<string, unknown>;
+  llmProvider?: string | null;
+  llmModel?: string | null;
+  llmPromptTokens?: number | null;
+  llmCompletionTokens?: number | null;
+  llmTotalTokens?: number | null;
+  llmUsageSource?: string | null;
+  sqlCacheHit?: boolean | null;
+  sqlCacheSourceRunId?: string | null;
+  sqlCacheSavedPromptTokens?: number | null;
+  sqlCacheSavedCompletionTokens?: number | null;
+  sqlCacheSavedTotalTokens?: number | null;
+  estimatedCostUsd?: number | null;
+  estimatedSavingsUsd?: number | null;
 }) {
   await db.query(
     `
@@ -280,6 +383,19 @@ export async function updateAgentRunGeneratedSql(input: {
       execution_status = $8,
       execution_error = $9,
       metadata = metadata || $10::jsonb,
+      llm_provider = COALESCE($11, llm_provider),
+      llm_model = COALESCE($12, llm_model),
+      llm_prompt_tokens = COALESCE($13, llm_prompt_tokens),
+      llm_completion_tokens = COALESCE($14, llm_completion_tokens),
+      llm_total_tokens = COALESCE($15, llm_total_tokens),
+      llm_usage_source = COALESCE($16, llm_usage_source),
+      sql_cache_hit = COALESCE($17, sql_cache_hit),
+      sql_cache_source_run_id = COALESCE($18::uuid, sql_cache_source_run_id),
+      sql_cache_saved_prompt_tokens = COALESCE($19, sql_cache_saved_prompt_tokens),
+      sql_cache_saved_completion_tokens = COALESCE($20, sql_cache_saved_completion_tokens),
+      sql_cache_saved_total_tokens = COALESCE($21, sql_cache_saved_total_tokens),
+      estimated_cost_usd = COALESCE($22, estimated_cost_usd),
+      estimated_savings_usd = COALESCE($23, estimated_savings_usd),
       updated_at = now()
     WHERE id = $1
     `,
@@ -293,7 +409,20 @@ export async function updateAgentRunGeneratedSql(input: {
       JSON.stringify(sanitizeJsonValue(input.validationWarnings ?? [])),
       input.executionStatus ?? "generated",
       input.executionError ?? null,
-      JSON.stringify(sanitizeJsonRecord(input.metadata))
+      JSON.stringify(sanitizeJsonRecord(input.metadata)),
+      input.llmProvider ?? null,
+      input.llmModel ?? null,
+      asOptionalInteger(input.llmPromptTokens),
+      asOptionalInteger(input.llmCompletionTokens),
+      asOptionalInteger(input.llmTotalTokens),
+      input.llmUsageSource ?? null,
+      input.sqlCacheHit ?? null,
+      input.sqlCacheSourceRunId ?? null,
+      asOptionalInteger(input.sqlCacheSavedPromptTokens),
+      asOptionalInteger(input.sqlCacheSavedCompletionTokens),
+      asOptionalInteger(input.sqlCacheSavedTotalTokens),
+      asOptionalDecimal(input.estimatedCostUsd),
+      asOptionalDecimal(input.estimatedSavingsUsd)
     ]
   );
 
@@ -315,6 +444,19 @@ export async function updateAgentRunExecution(input: {
   n8nStatusCode?: number | null;
   watsonStatusCode?: number | null;
   metadata?: Record<string, unknown>;
+  llmProvider?: string | null;
+  llmModel?: string | null;
+  llmPromptTokens?: number | null;
+  llmCompletionTokens?: number | null;
+  llmTotalTokens?: number | null;
+  llmUsageSource?: string | null;
+  sqlCacheHit?: boolean | null;
+  sqlCacheSourceRunId?: string | null;
+  sqlCacheSavedPromptTokens?: number | null;
+  sqlCacheSavedCompletionTokens?: number | null;
+  sqlCacheSavedTotalTokens?: number | null;
+  estimatedCostUsd?: number | null;
+  estimatedSavingsUsd?: number | null;
 }) {
   await db.query(
     `
@@ -333,6 +475,19 @@ export async function updateAgentRunExecution(input: {
       n8n_status_code = $12,
       watson_status_code = $13,
       metadata = metadata || $14::jsonb,
+      llm_provider = COALESCE($15, llm_provider),
+      llm_model = COALESCE($16, llm_model),
+      llm_prompt_tokens = COALESCE($17, llm_prompt_tokens),
+      llm_completion_tokens = COALESCE($18, llm_completion_tokens),
+      llm_total_tokens = COALESCE($19, llm_total_tokens),
+      llm_usage_source = COALESCE($20, llm_usage_source),
+      sql_cache_hit = COALESCE($21, sql_cache_hit),
+      sql_cache_source_run_id = COALESCE($22::uuid, sql_cache_source_run_id),
+      sql_cache_saved_prompt_tokens = COALESCE($23, sql_cache_saved_prompt_tokens),
+      sql_cache_saved_completion_tokens = COALESCE($24, sql_cache_saved_completion_tokens),
+      sql_cache_saved_total_tokens = COALESCE($25, sql_cache_saved_total_tokens),
+      estimated_cost_usd = COALESCE($26, estimated_cost_usd),
+      estimated_savings_usd = COALESCE($27, estimated_savings_usd),
       updated_at = now()
     WHERE id = $1
     `,
@@ -350,7 +505,20 @@ export async function updateAgentRunExecution(input: {
       input.executorVersion ?? null,
       input.n8nStatusCode ?? null,
       input.watsonStatusCode ?? null,
-      JSON.stringify(sanitizeJsonRecord(input.metadata))
+      JSON.stringify(sanitizeJsonRecord(input.metadata)),
+      input.llmProvider ?? null,
+      input.llmModel ?? null,
+      asOptionalInteger(input.llmPromptTokens),
+      asOptionalInteger(input.llmCompletionTokens),
+      asOptionalInteger(input.llmTotalTokens),
+      input.llmUsageSource ?? null,
+      input.sqlCacheHit ?? null,
+      input.sqlCacheSourceRunId ?? null,
+      asOptionalInteger(input.sqlCacheSavedPromptTokens),
+      asOptionalInteger(input.sqlCacheSavedCompletionTokens),
+      asOptionalInteger(input.sqlCacheSavedTotalTokens),
+      asOptionalDecimal(input.estimatedCostUsd),
+      asOptionalDecimal(input.estimatedSavingsUsd)
     ]
   );
 
@@ -366,6 +534,19 @@ export async function markAgentRunBlocked(input: {
   validationErrors?: unknown[];
   sqlGenerated?: string | null;
   sqlExecuted?: string | null;
+  llmProvider?: string | null;
+  llmModel?: string | null;
+  llmPromptTokens?: number | null;
+  llmCompletionTokens?: number | null;
+  llmTotalTokens?: number | null;
+  llmUsageSource?: string | null;
+  sqlCacheHit?: boolean | null;
+  sqlCacheSourceRunId?: string | null;
+  sqlCacheSavedPromptTokens?: number | null;
+  sqlCacheSavedCompletionTokens?: number | null;
+  sqlCacheSavedTotalTokens?: number | null;
+  estimatedCostUsd?: number | null;
+  estimatedSavingsUsd?: number | null;
 }) {
   await db.query(
     `
@@ -379,6 +560,19 @@ export async function markAgentRunBlocked(input: {
       sql_generated = COALESCE($6, sql_generated),
       sql_executed = COALESCE($7, sql_executed),
       metadata = metadata || $8::jsonb,
+      llm_provider = COALESCE($9, llm_provider),
+      llm_model = COALESCE($10, llm_model),
+      llm_prompt_tokens = COALESCE($11, llm_prompt_tokens),
+      llm_completion_tokens = COALESCE($12, llm_completion_tokens),
+      llm_total_tokens = COALESCE($13, llm_total_tokens),
+      llm_usage_source = COALESCE($14, llm_usage_source),
+      sql_cache_hit = COALESCE($15, sql_cache_hit),
+      sql_cache_source_run_id = COALESCE($16::uuid, sql_cache_source_run_id),
+      sql_cache_saved_prompt_tokens = COALESCE($17, sql_cache_saved_prompt_tokens),
+      sql_cache_saved_completion_tokens = COALESCE($18, sql_cache_saved_completion_tokens),
+      sql_cache_saved_total_tokens = COALESCE($19, sql_cache_saved_total_tokens),
+      estimated_cost_usd = COALESCE($20, estimated_cost_usd),
+      estimated_savings_usd = COALESCE($21, estimated_savings_usd),
       updated_at = now()
     WHERE id = $1
     `,
@@ -390,7 +584,20 @@ export async function markAgentRunBlocked(input: {
       JSON.stringify(sanitizeJsonValue(input.validationErrors ?? [])),
       input.sqlGenerated ?? null,
       input.sqlExecuted ?? null,
-      JSON.stringify(sanitizeJsonRecord(input.metadata))
+      JSON.stringify(sanitizeJsonRecord(input.metadata)),
+      input.llmProvider ?? null,
+      input.llmModel ?? null,
+      asOptionalInteger(input.llmPromptTokens),
+      asOptionalInteger(input.llmCompletionTokens),
+      asOptionalInteger(input.llmTotalTokens),
+      input.llmUsageSource ?? null,
+      input.sqlCacheHit ?? null,
+      input.sqlCacheSourceRunId ?? null,
+      asOptionalInteger(input.sqlCacheSavedPromptTokens),
+      asOptionalInteger(input.sqlCacheSavedCompletionTokens),
+      asOptionalInteger(input.sqlCacheSavedTotalTokens),
+      asOptionalDecimal(input.estimatedCostUsd),
+      asOptionalDecimal(input.estimatedSavingsUsd)
     ]
   );
 

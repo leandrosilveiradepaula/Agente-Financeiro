@@ -43,6 +43,9 @@ export function getSecurityChecks(): SecurityChecksResult {
   const nodeEnv = process.env.NODE_ENV || "development";
   const profilePolicyManagementEnabled =
     process.env.PROFILE_POLICY_MANAGEMENT_ENABLED === "true";
+  const llmCostConfigured =
+    hasValue(process.env.LLM_INPUT_COST_PER_1M_TOKENS_USD) &&
+    hasValue(process.env.LLM_OUTPUT_COST_PER_1M_TOKENS_USD);
 
   const checks: SecurityCheck[] = [
     makeCheck(
@@ -92,6 +95,14 @@ export function getSecurityChecks(): SecurityChecksResult {
       profilePolicyManagementEnabled
         ? "Gestão visual de políticas habilitada neste ambiente."
         : "Gestão visual de políticas desabilitada."
+    ),
+    makeCheck(
+      "llm_estimated_costs_configured",
+      "Custos estimados de IA",
+      llmCostConfigured ? "ok" : "warning",
+      llmCostConfigured
+        ? "Custos estimados de IA configurados."
+        : "Custos estimados de IA não configurados; valores monetários ficarão indisponíveis."
     ),
     makeCheck(
       "git_hygiene_env",

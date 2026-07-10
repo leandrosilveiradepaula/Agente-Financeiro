@@ -1,10 +1,18 @@
 import { NextResponse } from "next/server";
 import {
   createAgentRun,
+  findLatestComparableLlmRunForCacheSavings,
+  getAgentRunById,
   markAgentRunBlocked,
   updateAgentRunGeneratedSql
 } from "@/lib/agent-runs";
 import { normalizeGenerateSqlResponse } from "@/lib/generate-sql-normalization";
+import {
+  calculateEstimatedLlmCostUsd,
+  calculateEstimatedSavingsUsd,
+  extractLlmUsageFromResponse,
+  normalizePositiveInteger
+} from "@/lib/llm-usage";
 import { N8N_WATSON_ORCHESTRATE_ENDPOINT } from "@/lib/n8n-endpoint";
 import {
   buildPolicyDeniedResponse,
@@ -52,6 +60,177 @@ function readIntentConfidence(raw: unknown): number | null {
   }
 
   return null;
+}
+
+function readPath(root: unknown, path: string[]) {
+  let current = root;
+
+  for (const segment of path) {
+    if (!isRecord(current)) return undefined;
+    current = current[segment];
+  }
+
+  return current;
+}
+
+function firstStringPath(root: unknown, paths: string[][]) {
+  for (const path of paths) {
+    const value = readPath(root, path);
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+
+  return null;
+}
+
+function firstIntegerPath(root: unknown, paths: string[][]) {
+  for (const path of paths) {
+    const value = normalizePositiveInteger(readPath(root, path));
+    if (value !== null) return value;
+  }
+
+  return null;
+}
+
+function isUuid(value: string | null) {
+  return Boolean(
+    value &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        value
+      )
+  );
+}
+
+function detectSqlCacheHit(raw: unknown, normalizedCache: GenerateSqlResponse["cache"]) {
+  const cacheStatus = firstStringPath(raw, [["cache", "status"]]);
+  const cacheSource = firstStringPath(raw, [["cache", "source"], ["source"]]);
+  const cacheHit = readPath(raw, ["cache", "hit"]);
+
+  return (
+    normalizedCache?.hit === true ||
+    cacheHit === true ||
+    cacheStatus === "hit" ||
+    cacheSource === "cache"
+  );
+}
+
+async function buildLlmPersistence(
+  raw: unknown,
+  cacheHit: boolean,
+  comparable: {
+    currentRunId: string;
+    currentCreatedAt: string | null;
+    perguntaNormalizada: string | null;
+    detectedIntent: string | null;
+    sqlGenerated: string | null;
+  }
+) {
+  const usage = extractLlmUsageFromResponse(raw);
+  const inputCostPer1M = process.env.LLM_INPUT_COST_PER_1M_TOKENS_USD;
+  const outputCostPer1M = process.env.LLM_OUTPUT_COST_PER_1M_TOKENS_USD;
+  const cacheSourceRunId = firstStringPath(raw, [
+    ["cache", "source_run_id"],
+    ["cache", "sourceRunId"],
+    ["cache", "cached_run_id"],
+    ["cache", "cachedRunId"],
+    ["source_run_id"],
+    ["cached_run_id"]
+  ]);
+  let savedPromptTokens = firstIntegerPath(raw, [
+    ["cache", "saved_prompt_tokens"],
+    ["cache", "savedPromptTokens"],
+    ["sql_cache_saved_prompt_tokens"]
+  ]);
+  let savedCompletionTokens = firstIntegerPath(raw, [
+    ["cache", "saved_completion_tokens"],
+    ["cache", "savedCompletionTokens"],
+    ["sql_cache_saved_completion_tokens"]
+  ]);
+  let savedTotalTokens = firstIntegerPath(raw, [
+    ["cache", "saved_total_tokens"],
+    ["cache", "savedTotalTokens"],
+    ["sql_cache_saved_total_tokens"]
+  ]);
+
+  let resolvedCacheSourceRunId = isUuid(cacheSourceRunId) ? cacheSourceRunId : null;
+
+  if (
+    cacheHit &&
+    resolvedCacheSourceRunId &&
+    (savedPromptTokens === null || savedCompletionTokens === null || savedTotalTokens === null)
+  ) {
+    const sourceRun = await getAgentRunById(resolvedCacheSourceRunId);
+    savedPromptTokens = savedPromptTokens ?? sourceRun?.llm_prompt_tokens ?? null;
+    savedCompletionTokens = savedCompletionTokens ?? sourceRun?.llm_completion_tokens ?? null;
+    savedTotalTokens = savedTotalTokens ?? sourceRun?.llm_total_tokens ?? null;
+  }
+
+  if (
+    cacheHit &&
+    (savedPromptTokens === null || savedCompletionTokens === null || savedTotalTokens === null)
+  ) {
+    const comparableRun = await findLatestComparableLlmRunForCacheSavings({
+      perguntaNormalizada: comparable.perguntaNormalizada,
+      detectedIntent: comparable.detectedIntent,
+      currentRunId: comparable.currentRunId,
+      currentCreatedAt: comparable.currentCreatedAt,
+      sqlGenerated: comparable.sqlGenerated
+    });
+
+    if (comparableRun) {
+      resolvedCacheSourceRunId = comparableRun.id;
+      savedPromptTokens = savedPromptTokens ?? comparableRun.llm_prompt_tokens ?? null;
+      savedCompletionTokens = savedCompletionTokens ?? comparableRun.llm_completion_tokens ?? null;
+      savedTotalTokens = savedTotalTokens ?? comparableRun.llm_total_tokens ?? null;
+    }
+  }
+
+  if (savedTotalTokens === null && savedPromptTokens !== null && savedCompletionTokens !== null) {
+    savedTotalTokens = savedPromptTokens + savedCompletionTokens;
+  }
+
+  if (cacheHit) {
+    return {
+      llmProvider: usage.provider,
+      llmModel: usage.model,
+      llmPromptTokens: 0,
+      llmCompletionTokens: 0,
+      llmTotalTokens: 0,
+      llmUsageSource: "sql_cache",
+      sqlCacheHit: true,
+      sqlCacheSourceRunId: resolvedCacheSourceRunId,
+      sqlCacheSavedPromptTokens: savedPromptTokens,
+      sqlCacheSavedCompletionTokens: savedCompletionTokens,
+      sqlCacheSavedTotalTokens: savedTotalTokens,
+      estimatedCostUsd: null,
+      estimatedSavingsUsd: calculateEstimatedSavingsUsd({
+        savedPromptTokens,
+        savedCompletionTokens,
+        inputCostPer1M,
+        outputCostPer1M
+      })
+    };
+  }
+
+  return {
+    llmProvider: usage.provider,
+    llmModel: usage.model,
+    llmPromptTokens: usage.promptTokens,
+    llmCompletionTokens: usage.completionTokens,
+    llmTotalTokens: usage.totalTokens,
+    llmUsageSource: usage.source,
+    sqlCacheHit: false,
+    sqlCacheSourceRunId: null,
+    sqlCacheSavedPromptTokens: null,
+    sqlCacheSavedCompletionTokens: null,
+    sqlCacheSavedTotalTokens: null,
+    estimatedCostUsd: calculateEstimatedLlmCostUsd({
+      promptTokens: usage.promptTokens,
+      completionTokens: usage.completionTokens,
+      inputCostPer1M,
+      outputCostPer1M
+    }),
+    estimatedSavingsUsd: null
+  };
 }
 
 function buildErrorResponse(
@@ -283,22 +462,34 @@ export async function POST(request: Request) {
 
     const normalized = normalizeGenerateSqlResponse(raw);
 
+    const baseCache =
+      normalized.cache ??
+      (useSqlCache
+        ? {
+            enabled: true,
+            hit: false,
+            source: "metadata_not_returned"
+          }
+        : {
+            enabled: false,
+            hit: false,
+            source: "disabled_by_user"
+          });
+    const sqlCacheHit = detectSqlCacheHit(raw, baseCache);
     const normalizedWithCache: GenerateSqlResponse = {
       ...normalized,
-      cache:
-        normalized.cache ??
-        (useSqlCache
-          ? {
-              enabled: true,
-              hit: false,
-              source: "metadata_not_returned"
-            }
-          : {
-              enabled: false,
-              hit: false,
-              source: "disabled_by_user"
-            })
+      cache: {
+        ...baseCache,
+        hit: sqlCacheHit
+      }
     };
+    const llmPersistence = await buildLlmPersistence(raw, sqlCacheHit, {
+      currentRunId: agentRun.id,
+      currentCreatedAt: agentRun.created_at,
+      perguntaNormalizada: agentRun.pergunta_normalizada,
+      detectedIntent: normalizedWithCache.detected_intent,
+      sqlGenerated: normalizedWithCache.sql
+    });
 
     if (!webhookResponse.ok) {
       logger.warn("generate_sql.webhook_non_ok", {
@@ -318,6 +509,7 @@ export async function POST(request: Request) {
         executionError:
           normalizedWithCache.error ||
           `O serviço de orquestração retornou status ${webhookResponse.status}.`,
+        ...llmPersistence,
         metadata: {
           n8n_status_code: webhookResponse.status
         }
@@ -348,6 +540,7 @@ export async function POST(request: Request) {
         executionError: intentPolicy.reason,
         validationStatus: normalizedWithCache.validation_status,
         sqlGenerated: normalizedWithCache.sql,
+        ...llmPersistence,
         metadata: {
           policy_reason: {
             profile: session.userProfile,
@@ -387,6 +580,7 @@ export async function POST(request: Request) {
         detectedIntent: normalizedWithCache.detected_intent,
         validationStatus: normalizedWithCache.validation_status,
         sqlGenerated: normalizedWithCache.sql,
+        ...llmPersistence,
         metadata: {
           policy_reason: {
             profile: session.userProfile,
@@ -434,6 +628,7 @@ export async function POST(request: Request) {
         executionError:
           normalizedWithCache.error ||
           `O serviço de orquestração retornou status ${webhookResponse.status}.`,
+        ...llmPersistence,
         metadata: {
           n8n_status_code: webhookResponse.status
         }
@@ -474,6 +669,7 @@ export async function POST(request: Request) {
       validationStatus: normalizedWithCache.validation_status,
       executionStatus: normalizedWithCache.success ? "generated" : "failed",
       executionError: normalizedWithCache.success ? null : normalizedWithCache.error ?? null,
+      ...llmPersistence,
       metadata: {
         cache: normalizedWithCache.cache,
         n8n_status_code: webhookResponse.status
@@ -487,7 +683,11 @@ export async function POST(request: Request) {
       can_view_sql: policy.can_view_sql,
       sql_hidden: !policy.can_view_sql,
       run_id: agentRun.run_id ?? agentRun.id,
-      agent_run_id: agentRun.id
+      agent_run_id: agentRun.id,
+      sql_cache_saved_prompt_tokens: llmPersistence.sqlCacheSavedPromptTokens,
+      sql_cache_saved_completion_tokens: llmPersistence.sqlCacheSavedCompletionTokens,
+      sql_cache_saved_total_tokens: llmPersistence.sqlCacheSavedTotalTokens,
+      estimated_savings_usd: llmPersistence.estimatedSavingsUsd
     };
 
     return NextResponse.json(responsePayload);
