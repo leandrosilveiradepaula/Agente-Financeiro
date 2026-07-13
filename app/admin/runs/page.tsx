@@ -344,7 +344,12 @@ export default function AdminRunsPage() {
 
       setAccountPolicy(policyData.policy);
 
-      if (!policyData.policy.can_view_all_runs) {
+      const canViewHistory =
+        policyData.policy.can_view_all_runs ||
+        policyData.policy.can_view_own_runs ||
+        ["admin", "auditoria"].includes(sessionData.user.profile);
+
+      if (!canViewHistory) {
         setAccessState("forbidden");
         return;
       }

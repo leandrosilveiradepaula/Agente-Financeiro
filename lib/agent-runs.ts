@@ -607,6 +607,8 @@ export async function markAgentRunBlocked(input: {
 export async function listAgentRuns(input: {
   status?: string;
   userEmail?: string;
+  viewerUserId?: string;
+  viewerEmail?: string;
   intent?: string;
   limit: number;
   offset: number;
@@ -622,6 +624,22 @@ export async function listAgentRuns(input: {
   if (input.userEmail) {
     values.push(`%${input.userEmail.toLowerCase()}%`);
     filters.push(`lower(coalesce(user_email, '')) LIKE $${values.length}`);
+  }
+
+  if (input.viewerUserId || input.viewerEmail) {
+    const scopedFilters: string[] = [];
+
+    if (input.viewerUserId) {
+      values.push(input.viewerUserId);
+      scopedFilters.push(`user_id = $${values.length}::uuid`);
+    }
+
+    if (input.viewerEmail) {
+      values.push(input.viewerEmail.toLowerCase());
+      scopedFilters.push(`lower(coalesce(user_email, '')) = $${values.length}`);
+    }
+
+    filters.push(`(${scopedFilters.join(" OR ")})`);
   }
 
   if (input.intent) {
