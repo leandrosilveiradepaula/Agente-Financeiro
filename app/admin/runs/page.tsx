@@ -99,6 +99,12 @@ const PROFILE_POLICY_MANAGEMENT_ENABLED =
 
 const STATUS_OPTIONS = ["todos", "generated", "executed", "failed", "blocked", "pending"];
 const LIMIT_OPTIONS = ["25", "50", "100", "200"];
+const DEFAULT_RUN_FILTERS = {
+  status: "todos",
+  user_email: "",
+  intent: "",
+  limit: "50"
+};
 const SENSITIVE_KEY_PATTERNS = [
   "token",
   "authorization",
@@ -226,12 +232,7 @@ export default function AdminRunsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [filters, setFilters] = useState({
-    status: "todos",
-    user_email: "",
-    intent: "",
-    limit: "50"
-  });
+  const [draftFilters, setDraftFilters] = useState(DEFAULT_RUN_FILTERS);
 
   const summary = useMemo(
     () => ({
@@ -280,7 +281,7 @@ export default function AdminRunsPage() {
   }, []);
 
   const loadRuns = useCallback(
-    async (nextFilters = filters) => {
+    async (nextFilters = DEFAULT_RUN_FILTERS) => {
       setLoading(true);
       setError("");
 
@@ -309,7 +310,7 @@ export default function AdminRunsPage() {
         setLoading(false);
       }
     },
-    [filters, showError]
+    [showError]
   );
 
   const checkAccessAndLoad = useCallback(async () => {
@@ -355,7 +356,7 @@ export default function AdminRunsPage() {
       }
 
       setAccessState("allowed");
-      await loadRuns();
+      await loadRuns(DEFAULT_RUN_FILTERS);
     } catch {
       showError("Não foi possível carregar a área de histórico.");
     } finally {
@@ -369,19 +370,12 @@ export default function AdminRunsPage() {
 
   async function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await loadRuns(filters);
+    await loadRuns(draftFilters);
   }
 
   async function clearFilters() {
-    const cleared = {
-      status: "todos",
-      user_email: "",
-      intent: "",
-      limit: "50"
-    };
-
-    setFilters(cleared);
-    await loadRuns(cleared);
+    setDraftFilters(DEFAULT_RUN_FILTERS);
+    await loadRuns(DEFAULT_RUN_FILTERS);
   }
 
   async function openDetails(runId: string) {
@@ -569,8 +563,8 @@ export default function AdminRunsPage() {
           <label className="block">
             <span className="text-xs font-bold uppercase tracking-wide text-steel">Status</span>
             <select
-              value={filters.status}
-              onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
+              value={draftFilters.status}
+              onChange={(event) => setDraftFilters((current) => ({ ...current, status: event.target.value }))}
               className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-ink shadow-sm"
             >
               {STATUS_OPTIONS.map((status) => (
@@ -586,8 +580,8 @@ export default function AdminRunsPage() {
             </span>
             <input
               type="text"
-              value={filters.user_email}
-              onChange={(event) => setFilters((current) => ({ ...current, user_email: event.target.value }))}
+              value={draftFilters.user_email}
+              onChange={(event) => setDraftFilters((current) => ({ ...current, user_email: event.target.value }))}
               className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-ink shadow-sm"
             />
           </label>
@@ -596,8 +590,8 @@ export default function AdminRunsPage() {
             <input
               type="text"
               list="intent-options"
-              value={filters.intent}
-              onChange={(event) => setFilters((current) => ({ ...current, intent: event.target.value }))}
+              value={draftFilters.intent}
+              onChange={(event) => setDraftFilters((current) => ({ ...current, intent: event.target.value }))}
               className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-ink shadow-sm"
             />
             <datalist id="intent-options">
@@ -609,8 +603,8 @@ export default function AdminRunsPage() {
           <label className="block">
             <span className="text-xs font-bold uppercase tracking-wide text-steel">Limite</span>
             <select
-              value={filters.limit}
-              onChange={(event) => setFilters((current) => ({ ...current, limit: event.target.value }))}
+              value={draftFilters.limit}
+              onChange={(event) => setDraftFilters((current) => ({ ...current, limit: event.target.value }))}
               className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-ink shadow-sm"
             >
               {LIMIT_OPTIONS.map((limit) => (

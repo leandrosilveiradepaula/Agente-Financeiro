@@ -48,9 +48,10 @@ export async function GET() {
     );
   }
 
-  const canViewAllRuns =
-    policy.can_view_all_runs || ["admin", "auditoria"].includes(session.userProfile);
-  const canViewOwnRuns = policy.can_view_own_runs || canViewAllRuns;
+  const canViewOwnRuns =
+    policy.can_view_own_runs ||
+    policy.can_view_all_runs ||
+    ["admin", "auditoria"].includes(session.userProfile);
 
   if (!canViewOwnRuns) {
     logger.warn("query_history.list_forbidden", {
@@ -66,8 +67,8 @@ export async function GET() {
 
   try {
     const result = await listAgentRuns({
-      viewerUserId: canViewAllRuns ? undefined : session.userId,
-      viewerEmail: canViewAllRuns ? undefined : session.email,
+      viewerUserId: session.userId,
+      viewerEmail: session.email,
       limit: 10,
       offset: 0
     });
@@ -80,7 +81,7 @@ export async function GET() {
       table: "public.ai_agent_runs",
       returnedCount: result.runs.length,
       total: result.total,
-      scope: canViewAllRuns ? "all_runs" : "own_runs"
+      scope: "own_runs"
     });
 
     return NextResponse.json({
