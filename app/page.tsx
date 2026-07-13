@@ -165,6 +165,32 @@ function friendlyPolicyError(code?: string, fallback = "Não foi possível concl
   return code ? messages[code] ?? fallback : fallback;
 }
 
+function mergeQueryHistoryItems(...groups: QueryHistoryItem[][]) {
+  const merged = new Map<string, QueryHistoryItem>();
+
+  for (const item of groups.flat()) {
+    const key = `${item.id}:${item.pergunta.trim().toLowerCase()}`;
+    if (!merged.has(key)) {
+      merged.set(key, item);
+    }
+  }
+
+  return Array.from(merged.values())
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 10);
+}
+
+async function fetchPersistentQueryHistory() {
+  const response = await fetch("/api/history/runs", { cache: "no-store" });
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const data = (await response.json()) as { items?: QueryHistoryItem[] };
+  return Array.isArray(data.items) ? data.items : [];
+}
+
 export default function Home() {
   const [authState, setAuthState] = useState<AuthState>("checking");
   const [email, setEmail] = useState("");
@@ -257,20 +283,36 @@ export default function Home() {
 
   useEffect(() => {
     const userId = authenticatedUser?.id;
+    let active = true;
 
     if (authState !== "unlocked" || !userId || !accountPolicy) {
       setHistoryItems([]);
       setExecutiveReportHistory([]);
-      return;
+      return () => {
+        active = false;
+      };
     }
 
-    setHistoryItems(
-      canSeeQueryHistory
-        ? sanitizeQueryHistoryForPolicy(readQueryHistory(userId), {
-            canViewSql: canViewSqlByPolicy
-          })
-        : []
-    );
+    async function loadQueryHistory() {
+      if (!canSeeQueryHistory) {
+        setHistoryItems([]);
+        return;
+      }
+
+      const localItems = sanitizeQueryHistoryForPolicy(readQueryHistory(userId), {
+        canViewSql: canViewSqlByPolicy
+      });
+      const persistentItems = sanitizeQueryHistoryForPolicy(await fetchPersistentQueryHistory(), {
+        canViewSql: canViewSqlByPolicy
+      });
+
+      if (active) {
+        setHistoryItems(mergeQueryHistoryItems(persistentItems, localItems));
+      }
+    }
+
+    loadQueryHistory();
+
     setExecutiveReportHistory(
       canSeeReportHistory
         ? sanitizeExecutiveReportHistoryForPolicy(readExecutiveReportHistory(userId), {
@@ -278,6 +320,10 @@ export default function Home() {
           })
         : []
     );
+
+    return () => {
+      active = false;
+    };
   }, [
     accountPolicy,
     authState,
