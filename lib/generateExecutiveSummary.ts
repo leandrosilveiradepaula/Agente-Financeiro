@@ -64,8 +64,9 @@ function splitVarianceRows(data: ResultRow[]) {
 }
 
 function mainVarianceRow(data: ResultRow[]) {
-  const { negativeRows, positiveRows, zeroRows } = splitVarianceRows(data);
-  return negativeRows[0] ?? positiveRows[0] ?? zeroRows[0] ?? data[0];
+  return [...data].sort(
+    (a, b) => Math.abs(numberValue(b, "variancia_rs")) - Math.abs(numberValue(a, "variancia_rs"))
+  )[0];
 }
 
 function varianceSignText(row: ResultRow | undefined) {
@@ -84,23 +85,32 @@ function varianceSignText(row: ResultRow | undefined) {
 
 function varianceHighlights(data: ResultRow[], labelColumn: string) {
   const { negativeRows, positiveRows } = splitVarianceRows(data);
-  const highlights: string[] = [];
+  const main = mainVarianceRow(data);
+  const mainVariance = numberValue(main, "variancia_rs");
   const negative = negativeRows[0];
   const positive = positiveRows[0];
+  const negativeHighlight = negative
+    ? `Maior variação negativa: ${text(negative, labelColumn)} com ${formatBRL(numberValue(negative, "variancia_rs"))}.`
+    : null;
+  const positiveHighlight = positive
+    ? `Maior variação positiva: ${text(positive, labelColumn)} com ${formatBRL(numberValue(positive, "variancia_rs"))}.`
+    : null;
 
-  if (negative) {
-    highlights.push(
-      `Maior variação negativa: ${text(negative, labelColumn)} com ${formatBRL(numberValue(negative, "variancia_rs"))}.`
+  if (mainVariance > 0) {
+    return [positiveHighlight, negativeHighlight].filter(
+      (highlight): highlight is string => Boolean(highlight)
     );
   }
 
-  if (positive) {
-    highlights.push(
-      `Maior variação positiva: ${text(positive, labelColumn)} com ${formatBRL(numberValue(positive, "variancia_rs"))}.`
+  if (mainVariance < 0) {
+    return [negativeHighlight, positiveHighlight].filter(
+      (highlight): highlight is string => Boolean(highlight)
     );
   }
 
-  return highlights;
+  return [negativeHighlight, positiveHighlight].filter(
+    (highlight): highlight is string => Boolean(highlight)
+  );
 }
 
 function topLabels(rows: ResultRow[], labelColumn: string, limit = 3) {

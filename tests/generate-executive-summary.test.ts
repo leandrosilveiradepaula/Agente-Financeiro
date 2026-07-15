@@ -149,6 +149,7 @@ describe("generateExecutiveSummary", () => {
     });
     const highlights = summary.highlights.join(" ");
 
+    expect(summary.paragraphs[0]).toContain("principal variação negativa");
     expect(highlights).toContain("Maior variação negativa");
     expect(highlights).not.toContain("Maior variação positiva");
     expect(highlights).toContain("A");
@@ -164,9 +165,36 @@ describe("generateExecutiveSummary", () => {
     });
     const highlights = summary.highlights.join(" ");
 
+    expect(summary.paragraphs[0]).toContain("principal variação positiva");
     expect(highlights).toContain("Maior variação positiva");
     expect(highlights).not.toContain("Maior variação negativa");
     expect(highlights).toContain("B");
+  });
+
+  it("uses the largest absolute variance as the main sentence", () => {
+    const summary = generateExecutiveSummary({
+      columns: varianceColumns,
+      data: [
+        {
+          grupo_dre: "01 - RECEITA DE VENDAS",
+          variancia_rs: 2022762.81,
+          variancia_perc: 5.32
+        },
+        {
+          grupo_dre: "14 - IMPOSTO SOBRE O LUCRO",
+          variancia_rs: -800322.4,
+          variancia_perc: -134.41
+        }
+      ]
+    });
+    const highlights = summary.highlights.join(" ");
+
+    expect(summary.paragraphs[0]).toContain("principal variação positiva");
+    expect(summary.paragraphs[0]).toContain("01 - RECEITA DE VENDAS");
+    expect(summary.paragraphs[0]).toContain("R$");
+    expect(summary.paragraphs[0]).toContain("2.022.762,81");
+    expect(highlights).toContain("Maior variação positiva");
+    expect(highlights).toContain("Maior variação negativa");
   });
 
   it("creates both variance highlights when both signs exist", () => {
