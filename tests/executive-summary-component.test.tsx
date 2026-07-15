@@ -20,6 +20,14 @@ function render(element: React.ReactElement) {
   return container;
 }
 
+function rerender(element: React.ReactElement) {
+  act(() => {
+    root?.render(element);
+  });
+
+  return container;
+}
+
 afterEach(() => {
   if (root) {
     act(() => {
@@ -61,7 +69,7 @@ describe("ExecutiveSummary", () => {
     expect(view.textContent).toContain("Receita de Vendas não deve entrar nesta leitura");
     expect(view.textContent).toContain("Resumo executivo gerado pelo serviço de orquestração.");
     expect(view.textContent).not.toContain("Regerar resumo");
-    expect(onSummaryGenerated).toHaveBeenCalledWith(backendSummary);
+    expect(onSummaryGenerated).toHaveBeenCalledWith(backendSummary, undefined);
   });
 
   it("prefers local normalized summary when result rows exist even with backendSummary", () => {
@@ -133,6 +141,51 @@ describe("ExecutiveSummary", () => {
     expect(view.textContent).toContain(
       "Resumo executivo gerado a partir dos resultados normalizados da interface."
     );
-    expect(view.textContent).toContain("O maior ponto de atenção");
+    expect(view.textContent).toContain("ranking_no_tipo");
+    expect(view.textContent).toContain("liderança na posição 1");
+  });
+
+  it("recalculates summary when a later execution returns a different dataset", () => {
+    const onSummaryGenerated = vi.fn();
+    const firstRows = Array.from({ length: 5 }, (_, index) => ({
+      nome: `Linha ${index + 1}`,
+      valor: index + 1
+    }));
+    const secondRows = Array.from({ length: 10 }, (_, index) => ({
+      entidade: `Entidade ${index + 1}`,
+      ranking_geral: index + 1
+    }));
+
+    const view = render(
+      <ExecutiveSummary
+        key="query-1"
+        resultKey="query-1"
+        columns={["nome", "valor", "a", "b", "c"]}
+        data={firstRows}
+        onSummaryGenerated={onSummaryGenerated}
+      />
+    );
+
+    expect(view.textContent).toContain("5 linhas e 5 colunas");
+
+    rerender(
+      <ExecutiveSummary
+        key="query-2"
+        resultKey="query-2"
+        columns={["entidade", "ranking_geral"]}
+        data={secondRows}
+        onSummaryGenerated={onSummaryGenerated}
+      />
+    );
+
+    expect(view.textContent).not.toContain("5 linhas e 5 colunas");
+    expect(view.textContent).toContain("10 linhas");
+    expect(view.textContent).toContain("ranking_geral");
+    expect(onSummaryGenerated).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        highlights: expect.arrayContaining([expect.stringContaining("ranking_geral")])
+      }),
+      "query-2"
+    );
   });
 });

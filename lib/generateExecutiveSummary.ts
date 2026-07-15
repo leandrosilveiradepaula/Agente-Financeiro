@@ -1,5 +1,5 @@
 import { formatBRL, formatNumber, formatPercent } from "@/lib/number-formatting";
-import { normalizeReportColumns, normalizeReportRows, parseReportNumber } from "@/lib/report-row-normalization";
+import { parseReportNumber } from "@/lib/report-row-normalization";
 import type { ExecutiveSummaryResult, ResultRow } from "@/lib/types";
 
 export type ExecutiveSummaryInput = {
@@ -21,6 +21,14 @@ function normalizeColumn(column: string) {
   return column.trim().toLowerCase();
 }
 
+function normalizeColumnForMatching(column: string) {
+  return column
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim()
+    .toLowerCase();
+}
+
 function hasColumns(columns: string[], required: string[]) {
   const available = new Set(columns.map(normalizeColumn));
   return required.every((column) => available.has(column));
@@ -38,6 +46,10 @@ function text(row: ResultRow | undefined, column: string, fallback = "não infor
 function numberValue(row: ResultRow | undefined, column: string): number {
   const raw = value(row, column);
   return parseReportNumber(raw) ?? 0;
+}
+
+function optionalNumberValue(row: ResultRow | undefined, column: string): number | null {
+  return parseReportNumber(value(row, column));
 }
 
 function byNumber(data: ResultRow[], column: string, direction: "asc" | "desc") {
@@ -115,6 +127,130 @@ function varianceHighlights(data: ResultRow[], labelColumn: string) {
 
 function topLabels(rows: ResultRow[], labelColumn: string, limit = 3) {
   return rows.slice(0, limit).map((row) => text(row, labelColumn));
+}
+
+function isRankingColumn(column: string) {
+  return /(^|[_\s-])(ranking|rank|posicao|posição|classificacao|classificação)([_\s-]|$)/i.test(
+    normalizeColumnForMatching(column)
+  );
+}
+
+function validNumericRows(data: ResultRow[], column: string) {
+  return data
+    .map((row, index) => ({ row, index, value: optionalNumberValue(row, column) }))
+    .filter((item): item is { row: ResultRow; index: number; value: number } => item.value !== null);
+}
+
+function uniqueCount(values: string[]) {
+  return new Set(values.filter(Boolean)).size;
+}
+
+function bestTextDimension(columns: string[], data: ResultRow[]) {
+  const candidates = columns
+    .map((column) => {
+      const values = data
+        .map((row) => value(row, column))
+        .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+        .map((item) => item.trim());
+
+      return { column, filled: values.length, unique: uniqueCount(values) };
+    })
+    .filter((candidate) => candidate.filled > 0);
+
+  return candidates.sort((a, b) => b.unique - a.unique || b.filled - a.filled)[0]?.column;
+}
+
+function describeRow(row: ResultRow, rowIndex: number, dimensionColumn?: string) {
+  if (dimensionColumn) {
+    return text(row, dimensionColumn);
+  }
+
+  return `linha ${rowIndex + 1}`;
+}
+
+const RANKING_TOKENS = new Set(["ranking", "rank", "posicao", "classificacao"]);
+
+function columnTokens(column: string) {
+  return normalizeColumnForMatching(column)
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token && !RANKING_TOKENS.has(token));
+}
+
+function relatedMetricColumn(rankingColumn: string, columns: string[], data: ResultRow[]) {
+  const rankingTokens = new Set(columnTokens(rankingColumn));
+  const candidates = columns
+    .filter((column) => column !== rankingColumn)
+    .map((column) => {
+      const hasNumericValue = data.some((row) => optionalNumberValue(row, column) !== null);
+      if (!hasNumericValue) {
+        return null;
+      }
+
+      const tokens = columnTokens(column);
+      const score = tokens.filter((token) => rankingTokens.has(token)).length;
+      return { column, score };
+    })
+    .filter((candidate): candidate is { column: string; score: number } => Boolean(candidate))
+    .filter((candidate) => candidate.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  return candidates.length === 1 || candidates[0]?.score > (candidates[1]?.score ?? 0)
+    ? candidates[0]?.column
+    : undefined;
+}
+
+function formatMetricValue(column: string, metricValue: number) {
+  const normalized = normalizeColumnForMatching(column);
+
+  if (normalized.endsWith("_rs")) {
+    return formatBRL(metricValue);
+  }
+
+  if (normalized.includes("perc") || normalized.includes("%")) {
+    return formatPercent(metricValue);
+  }
+
+  return formatNumber(metricValue);
+}
+
+function rankingSummary(input: ExecutiveSummaryInput): ExecutiveSummaryResult | null {
+  const { columns, data } = input;
+  const rankingColumns = columns.filter((column) => {
+    return isRankingColumn(column) && validNumericRows(data, column).length > 0;
+  });
+
+  if (!rankingColumns.length) {
+    return null;
+  }
+
+  const dimensionColumn = bestTextDimension(columns, data);
+  const highlights = rankingColumns.map((rankingColumn) => {
+    const numericRows = validNumericRows(data, rankingColumn);
+    const bestRank = Math.min(...numericRows.map((item) => item.value));
+    const leaders = numericRows.filter((item) => item.value === bestRank);
+    const labels = leaders.map((item) => describeRow(item.row, item.index, dimensionColumn));
+    const metricColumn = relatedMetricColumn(rankingColumn, columns, data);
+    const metricText =
+      metricColumn && leaders.length === 1
+        ? `, com ${metricColumn} de ${formatMetricValue(
+            metricColumn,
+            optionalNumberValue(leaders[0].row, metricColumn) ?? 0
+          )}`
+        : "";
+
+    return `${rankingColumn}: liderança na posição ${formatNumber(bestRank)} para ${labels.join(
+      ", "
+    )}${metricText}.`;
+  });
+
+  return {
+    title: SUMMARY_TITLE,
+    paragraphs: [
+      `Com base nos dados carregados, foram identificadas ${rankingColumns.length} colunas de ranking válidas em ${data.length} linhas.`,
+      "A leitura abaixo destaca líderes objetivos dos rankings disponíveis, sem inferir causa de negócio."
+    ],
+    highlights
+  };
 }
 
 function genericSummary(input: ExecutiveSummaryInput): ExecutiveSummaryResult {
@@ -274,8 +410,8 @@ function opexByBrandSectorSummary(input: ExecutiveSummaryInput): ExecutiveSummar
 }
 
 export function generateExecutiveSummary(input: ExecutiveSummaryInput): ExecutiveSummaryResult {
-  const data = normalizeReportRows(input.data);
-  const columns = normalizeReportColumns(input.columns, data);
+  const data = input.data;
+  const columns = input.columns;
   const normalizedInput = { ...input, columns, data };
 
   if (!data.length || !columns.length) {
@@ -285,6 +421,11 @@ export function generateExecutiveSummary(input: ExecutiveSummaryInput): Executiv
       highlights: [],
       warnings: ["Carregue um resultado do Watson antes de gerar o resumo."]
     };
+  }
+
+  const ranking = rankingSummary(normalizedInput);
+  if (ranking) {
+    return ranking;
   }
 
   if (

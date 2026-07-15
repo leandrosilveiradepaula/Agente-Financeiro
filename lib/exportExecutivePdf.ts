@@ -2,7 +2,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { InterfaceSettings } from "@/lib/interface-settings";
 import { formatBRL, formatNumber, formatPercent } from "@/lib/number-formatting";
-import { normalizeReportColumns, normalizeReportRows, parseReportNumber } from "@/lib/report-row-normalization";
+import { parseReportNumber } from "@/lib/report-row-normalization";
 import { prioritizePresentationColumns } from "@/lib/report-column-priority";
 import { AGENT_VERSION, type ExecutiveSummaryResult, type ResultRow } from "@/lib/types";
 
@@ -263,10 +263,8 @@ function drawTable(
   maxRows: number,
   maxColumns: number
 ) {
-  const normalizedRows = normalizeReportRows(data);
-  const normalizedColumns = normalizeReportColumns(columns, normalizedRows);
-  const tableColumns = prioritizePresentationColumns(normalizedColumns, maxColumns);
-  const tableRows = normalizedRows.slice(0, maxRows);
+  const tableColumns = prioritizePresentationColumns(columns, maxColumns);
+  const tableRows = data.slice(0, maxRows);
 
   y = drawSectionTitle(doc, "Tabela resumida", y);
 

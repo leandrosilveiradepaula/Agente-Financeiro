@@ -55,37 +55,29 @@ describe("normalizeWatsonResult", () => {
     expect(result.row_count).toBe(0);
   });
 
-  it("normalizes report aliases and calculates empty variance fields", () => {
+  it("preserves backend keys without creating presentation aliases", () => {
     const result = normalizeWatsonResult({
       columns: [
-        "grupo_dre",
-        "subgrupo",
-        "conta_contabil",
-        "realizado_rs",
-        "orcado_rs",
-        "variancia_rs",
-        "variancia_perc"
+        "grupo",
+        "valor_realizado",
+        "valor_orcado"
       ],
       data: [
         {
-          grupo_dre: "14 - IMPOSTO SOBRE O LUCRO",
-          subgrupo: "Imposto sobre o lucro",
-          conta_contabil: "4.03.01.01.01",
-          realizado_rs: "-R$ 999.476,60",
-          orcado_rs: "-R$ 437.283,28",
-          variancia_rs: "",
-          variancia_perc: ""
+          grupo: "14 - IMPOSTO SOBRE O LUCRO",
+          valor_realizado: "-R$ 999.476,60",
+          valor_orcado: "-R$ 437.283,28"
         }
       ]
     });
 
-    expect(result.columns).toContain("tipo_variacao");
-    expect(result.data[0]).toMatchObject({
-      realizado_rs: -999476.6,
-      orcado_rs: -437283.28,
-      variancia_rs: -562193.32,
-      variancia_perc: -128.57,
-      tipo_variacao: "Impacto negativo versus orçamento"
+    expect(result.columns).toEqual(["grupo", "valor_realizado", "valor_orcado"]);
+    expect(result.data[0]).toEqual({
+      grupo: "14 - IMPOSTO SOBRE O LUCRO",
+      valor_realizado: "-R$ 999.476,60",
+      valor_orcado: "-R$ 437.283,28"
     });
+    expect("grupo_dre" in result.data[0]).toBe(false);
+    expect("realizado_rs" in result.data[0]).toBe(false);
   });
 });

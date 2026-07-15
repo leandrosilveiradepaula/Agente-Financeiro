@@ -17,7 +17,8 @@ type ExecutiveSummaryProps = {
     detected_intent?: string;
   };
   backendSummary?: ExecutiveSummaryResult | null;
-  onSummaryGenerated?: (summary: ExecutiveSummaryResult) => void;
+  resultKey?: string;
+  onSummaryGenerated?: (summary: ExecutiveSummaryResult, resultKey?: string) => void;
 };
 
 function summaryToText(summary: ExecutiveSummaryResult) {
@@ -40,6 +41,7 @@ export function ExecutiveSummary({
   data,
   metadata,
   backendSummary,
+  resultKey,
   onSummaryGenerated
 }: ExecutiveSummaryProps) {
   const [revision, setRevision] = useState(0);
@@ -55,8 +57,8 @@ export function ExecutiveSummary({
   }, [backendSummary, columns, data, hasResultRows, metadata, question, revision]);
 
   useEffect(() => {
-    onSummaryGenerated?.(summary);
-  }, [onSummaryGenerated, summary]);
+    onSummaryGenerated?.(summary, resultKey);
+  }, [onSummaryGenerated, resultKey, summary]);
 
   async function copySummary() {
     await navigator.clipboard.writeText(summaryToText(summary));

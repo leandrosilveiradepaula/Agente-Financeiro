@@ -92,8 +92,9 @@ describe("generateExecutiveSummary", () => {
       ]
     });
 
-    expect(summary.paragraphs.join(" ")).toContain("melhor desempenho");
-    expect(summary.highlights.join(" ")).toContain("ranking por valor");
+    expect(summary.paragraphs.join(" ")).toContain("colunas de ranking válidas");
+    expect(summary.highlights.join(" ")).toContain("ranking_por_valor");
+    expect(summary.highlights.join(" ")).toContain("ranking_por_perc_rol");
   });
 
   it("falls back to a generic summary", () => {
@@ -125,8 +126,8 @@ describe("generateExecutiveSummary", () => {
           conta_contabil: "4.03.01.01.01",
           realizado_rs: "-R$ 999.476,60",
           orcado_rs: "-R$ 437.283,28",
-          variancia_rs: "",
-          variancia_perc: "",
+          variancia_rs: -562193.32,
+          variancia_perc: -128.57,
           tipo_variacao: ""
         }
       ],
@@ -221,5 +222,80 @@ describe("generateExecutiveSummary", () => {
     expect(summaryText).toContain("variação negativa");
     expect(summaryText).toContain("Maior variação negativa");
     expect(summaryText).not.toContain("Maior variação positiva");
+  });
+
+  it("summarizes generic tabular rankings with related metrics", () => {
+    const summary = generateExecutiveSummary({
+      columns: ["entidade", "ranking_receita", "receita_valor", "classificacao_margem", "margem_valor"],
+      data: [
+        {
+          entidade: "A",
+          ranking_receita: 2,
+          receita_valor: 100,
+          classificacao_margem: 1,
+          margem_valor: 40
+        },
+        {
+          entidade: "B",
+          ranking_receita: 1,
+          receita_valor: 250,
+          classificacao_margem: 2,
+          margem_valor: 30
+        }
+      ]
+    });
+    const text = [...summary.paragraphs, ...summary.highlights].join(" ");
+
+    expect(text).toContain("colunas de ranking válidas");
+    expect(text).toContain("ranking_receita");
+    expect(text).toContain("B");
+    expect(text).toContain("receita_valor");
+    expect(text).toContain("classificacao_margem");
+    expect(text).toContain("A");
+    expect(text).toContain("margem_valor");
+  });
+
+  it("summarizes ranking without inventing unrelated metrics", () => {
+    const summary = generateExecutiveSummary({
+      columns: ["entidade", "ranking_global", "valor_total"],
+      data: [
+        { entidade: "A", ranking_global: 1, valor_total: 500 },
+        { entidade: "B", ranking_global: 2, valor_total: 600 }
+      ]
+    });
+    const highlight = summary.highlights.join(" ");
+
+    expect(highlight).toContain("ranking_global");
+    expect(highlight).toContain("A");
+    expect(highlight).not.toContain("valor_total de");
+  });
+
+  it("handles ties at the best ranking position", () => {
+    const summary = generateExecutiveSummary({
+      columns: ["entidade", "ranking_geral"],
+      data: [
+        { entidade: "A", ranking_geral: 1 },
+        { entidade: "B", ranking_geral: 1 },
+        { entidade: "C", ranking_geral: 2 }
+      ]
+    });
+
+    expect(summary.highlights.join(" ")).toContain("A, B");
+  });
+
+  it("ignores invalid ranking values", () => {
+    const summary = generateExecutiveSummary({
+      columns: ["entidade", "ranking_geral"],
+      data: [
+        { entidade: "A", ranking_geral: null },
+        { entidade: "B", ranking_geral: "inválido" },
+        { entidade: "C", ranking_geral: 1 }
+      ]
+    });
+    const highlight = summary.highlights.join(" ");
+
+    expect(highlight).toContain("C");
+    expect(highlight).not.toContain("A");
+    expect(highlight).not.toContain("B");
   });
 });
