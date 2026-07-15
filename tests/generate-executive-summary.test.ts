@@ -2,6 +2,15 @@ import { describe, expect, it } from "vitest";
 import { generateExecutiveSummary } from "@/lib/generateExecutiveSummary";
 
 describe("generateExecutiveSummary", () => {
+  const varianceColumns = [
+    "grupo_dre",
+    "realizado_rs",
+    "orcado_rs",
+    "variancia_rs",
+    "variancia_perc",
+    "tipo_variacao"
+  ];
+
   it("summarizes DRE budget variance tables", () => {
     const summary = generateExecutiveSummary({
       columns: [
@@ -95,5 +104,94 @@ describe("generateExecutiveSummary", () => {
 
     expect(summary.paragraphs[0]).toContain("1 linhas");
     expect(summary.warnings?.length).toBeGreaterThan(0);
+  });
+
+  it("normalizes budget overrun values before summarizing", () => {
+    const summary = generateExecutiveSummary({
+      columns: [
+        "grupo_dre",
+        "subgrupo",
+        "conta_contabil",
+        "realizado_rs",
+        "orcado_rs",
+        "variancia_rs",
+        "variancia_perc",
+        "tipo_variacao"
+      ],
+      data: [
+        {
+          grupo_dre: "14 - IMPOSTO SOBRE O LUCRO",
+          subgrupo: "Imposto sobre o lucro",
+          conta_contabil: "4.03.01.01.01",
+          realizado_rs: "-R$ 999.476,60",
+          orcado_rs: "-R$ 437.283,28",
+          variancia_rs: "",
+          variancia_perc: "",
+          tipo_variacao: ""
+        }
+      ],
+    });
+
+    expect(summary.paragraphs[0]).toContain("4.03.01.01.01");
+    expect(summary.paragraphs[0]).toContain("-R$");
+    expect(summary.paragraphs[0]).toContain("562.193,32");
+    expect(summary.paragraphs[0]).toContain("-128,57%");
+    expect(summary.highlights.join(" ")).toContain("4.03.01.01.01");
+  });
+
+  it("does not create a positive highlight when all variances are negative", () => {
+    const summary = generateExecutiveSummary({
+      columns: varianceColumns,
+      data: [
+        { grupo_dre: "A", variancia_rs: -562193.32 },
+        { grupo_dre: "B", variancia_rs: -16759.68 }
+      ]
+    });
+    const highlights = summary.highlights.join(" ");
+
+    expect(highlights).toContain("Maior variação negativa");
+    expect(highlights).not.toContain("Maior variação positiva");
+    expect(highlights).toContain("A");
+  });
+
+  it("does not create a negative highlight when all variances are positive", () => {
+    const summary = generateExecutiveSummary({
+      columns: varianceColumns,
+      data: [
+        { grupo_dre: "A", variancia_rs: 100 },
+        { grupo_dre: "B", variancia_rs: 250 }
+      ]
+    });
+    const highlights = summary.highlights.join(" ");
+
+    expect(highlights).toContain("Maior variação positiva");
+    expect(highlights).not.toContain("Maior variação negativa");
+    expect(highlights).toContain("B");
+  });
+
+  it("creates both variance highlights when both signs exist", () => {
+    const summary = generateExecutiveSummary({
+      columns: varianceColumns,
+      data: [
+        { grupo_dre: "A", variancia_rs: -100 },
+        { grupo_dre: "B", variancia_rs: 250 }
+      ]
+    });
+    const highlights = summary.highlights.join(" ");
+
+    expect(highlights).toContain("Maior variação negativa");
+    expect(highlights).toContain("Maior variação positiva");
+  });
+
+  it("never classifies a negative variance close to zero as positive", () => {
+    const summary = generateExecutiveSummary({
+      columns: varianceColumns,
+      data: [{ grupo_dre: "A", variancia_rs: -0.01 }]
+    });
+    const summaryText = [...summary.paragraphs, ...summary.highlights].join(" ");
+
+    expect(summaryText).toContain("variação negativa");
+    expect(summaryText).toContain("Maior variação negativa");
+    expect(summaryText).not.toContain("Maior variação positiva");
   });
 });

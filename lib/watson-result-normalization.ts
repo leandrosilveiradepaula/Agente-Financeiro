@@ -1,4 +1,5 @@
 import type { ExecuteWatsonResponse, ExecutiveSummaryResult, ResultRow } from "@/lib/types";
+import { normalizeReportColumns, normalizeReportRows } from "@/lib/report-row-normalization";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -92,12 +93,12 @@ export function normalizeWatsonResult(raw: unknown): NormalizedWatsonResult {
   const payload = Array.isArray(raw) ? raw[0] : raw;
   const record = isRecord(payload) ? payload : {};
   const result = isRecord(record.result) ? record.result : {};
-  const data = normalizeRows(record.data ?? record.rows ?? result.data ?? result.rows);
+  const data = normalizeReportRows(normalizeRows(record.data ?? record.rows ?? result.data ?? result.rows));
   const columnsFromPayload = Array.isArray(record.columns)
     ? record.columns.filter((column): column is string => typeof column === "string")
     : [];
   const inferredColumns = columnsFromPayload.length ? [] : inferColumns(data);
-  const columns = columnsFromPayload.length ? columnsFromPayload : inferredColumns;
+  const columns = normalizeReportColumns(columnsFromPayload.length ? columnsFromPayload : inferredColumns, data);
   const rowCount = asNumber(record.row_count ?? record.rowCount) ?? data.length;
   const errorMessage =
     asString(record.error_message).trim() ||

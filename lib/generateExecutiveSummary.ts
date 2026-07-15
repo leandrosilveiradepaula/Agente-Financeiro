@@ -1,4 +1,5 @@
 import { formatBRL, formatNumber, formatPercent } from "@/lib/number-formatting";
+import { normalizeReportColumns, normalizeReportRows, parseReportNumber } from "@/lib/report-row-normalization";
 import type { ExecutiveSummaryResult, ResultRow } from "@/lib/types";
 
 export type ExecutiveSummaryInput = {
@@ -36,17 +37,7 @@ function text(row: ResultRow | undefined, column: string, fallback = "não infor
 
 function numberValue(row: ResultRow | undefined, column: string): number {
   const raw = value(row, column);
-
-  if (typeof raw === "number" && Number.isFinite(raw)) {
-    return raw;
-  }
-
-  if (typeof raw === "string") {
-    const parsed = Number(raw.replace(/\./g, "").replace(",", "."));
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-
-  return 0;
+  return parseReportNumber(raw) ?? 0;
 }
 
 function byNumber(data: ResultRow[], column: string, direction: "asc" | "desc") {
@@ -54,6 +45,62 @@ function byNumber(data: ResultRow[], column: string, direction: "asc" | "desc") 
     const diff = numberValue(a, column) - numberValue(b, column);
     return direction === "asc" ? diff : -diff;
   });
+}
+
+function splitVarianceRows(data: ResultRow[]) {
+  const negativeRows = byNumber(
+    data.filter((row) => numberValue(row, "variancia_rs") < 0),
+    "variancia_rs",
+    "asc"
+  );
+  const positiveRows = byNumber(
+    data.filter((row) => numberValue(row, "variancia_rs") > 0),
+    "variancia_rs",
+    "desc"
+  );
+  const zeroRows = data.filter((row) => numberValue(row, "variancia_rs") === 0);
+
+  return { negativeRows, positiveRows, zeroRows };
+}
+
+function mainVarianceRow(data: ResultRow[]) {
+  const { negativeRows, positiveRows, zeroRows } = splitVarianceRows(data);
+  return negativeRows[0] ?? positiveRows[0] ?? zeroRows[0] ?? data[0];
+}
+
+function varianceSignText(row: ResultRow | undefined) {
+  const variance = numberValue(row, "variancia_rs");
+
+  if (variance < 0) {
+    return "variação negativa";
+  }
+
+  if (variance > 0) {
+    return "variação positiva";
+  }
+
+  return "sem variação";
+}
+
+function varianceHighlights(data: ResultRow[], labelColumn: string) {
+  const { negativeRows, positiveRows } = splitVarianceRows(data);
+  const highlights: string[] = [];
+  const negative = negativeRows[0];
+  const positive = positiveRows[0];
+
+  if (negative) {
+    highlights.push(
+      `Maior variação negativa: ${text(negative, labelColumn)} com ${formatBRL(numberValue(negative, "variancia_rs"))}.`
+    );
+  }
+
+  if (positive) {
+    highlights.push(
+      `Maior variação positiva: ${text(positive, labelColumn)} com ${formatBRL(numberValue(positive, "variancia_rs"))}.`
+    );
+  }
+
+  return highlights;
 }
 
 function topLabels(rows: ResultRow[], labelColumn: string, limit = 3) {
@@ -92,19 +139,16 @@ function genericSummary(input: ExecutiveSummaryInput): ExecutiveSummaryResult {
 
 function dreBudgetSummary(input: ExecutiveSummaryInput): ExecutiveSummaryResult {
   const { data } = input;
-  const main = data[0];
-  const negative = byNumber(data, "variancia_rs", "asc")[0];
-  const positive = byNumber(data, "variancia_rs", "desc")[0];
+  const main = mainVarianceRow(data);
 
   return {
     title: SUMMARY_TITLE,
     paragraphs: [
-      `Com base no resultado carregado, a principal variação observada foi em ${text(main, "grupo_dre")}, com variação de ${formatBRL(numberValue(main, "variancia_rs"))}, equivalente a ${formatPercent(numberValue(main, "variancia_perc"))} frente ao orçamento.`,
+      `Com base no resultado carregado, a principal ${varianceSignText(main)} observada foi em ${text(main, "grupo_dre")}, com variação de ${formatBRL(numberValue(main, "variancia_rs"))}, equivalente a ${formatPercent(numberValue(main, "variancia_perc"))} frente ao orçamento.`,
       "A leitura executiva deve priorizar as maiores variações absolutas, separando efeitos negativos e positivos no resultado."
     ],
     highlights: [
-      `Maior variação negativa: ${text(negative, "grupo_dre")} com ${formatBRL(numberValue(negative, "variancia_rs"))}.`,
-      `Maior variação positiva: ${text(positive, "grupo_dre")} com ${formatBRL(numberValue(positive, "variancia_rs"))}.`,
+      ...varianceHighlights(data, "grupo_dre"),
       `${text(main, "tipo_variacao", "Tipo de variação não informado")} aparece como classificação do principal impacto.`
     ]
   };
@@ -112,19 +156,20 @@ function dreBudgetSummary(input: ExecutiveSummaryInput): ExecutiveSummaryResult 
 
 function accountOverrunSummary(input: ExecutiveSummaryInput): ExecutiveSummaryResult {
   const { data } = input;
-  const main = data[0];
-  const negativeRows = data.filter((row) => numberValue(row, "variancia_rs") < 0);
-  const positiveRows = data.filter((row) => numberValue(row, "variancia_rs") > 0);
+  const main = mainVarianceRow(data);
+  const mainLabel =
+    text(main, "conta_contabil", "") ||
+    text(main, "subgrupo", "") ||
+    text(main, "grupo_dre", "não informado");
 
   return {
     title: SUMMARY_TITLE,
     paragraphs: [
-      `O maior ponto de atenção é ${text(main, "conta_contabil")} em ${text(main, "subgrupo")}, com variação de ${formatBRL(numberValue(main, "variancia_rs"))}.`,
+      `O maior ponto de atenção é ${mainLabel} em ${text(main, "subgrupo")}, com ${varianceSignText(main)} de ${formatBRL(numberValue(main, "variancia_rs"))}, equivalente a ${formatPercent(numberValue(main, "variancia_perc"))} frente ao orçamento.`,
       "Neste tipo de leitura, variância negativa representa estouro frente ao orçamento, enquanto variância positiva indica economia."
     ],
     highlights: [
-      `Contas com maior estouro: ${topLabels(byNumber(negativeRows, "variancia_rs", "asc"), "conta_contabil").join(", ") || "não identificadas"}.`,
-      `Principais impactos positivos: ${topLabels(byNumber(positiveRows, "variancia_rs", "desc"), "conta_contabil").join(", ") || "não identificados"}.`,
+      ...varianceHighlights(data, "conta_contabil"),
       `Grupo DRE do principal ponto: ${text(main, "grupo_dre")}.`
     ]
   };
@@ -219,7 +264,9 @@ function opexByBrandSectorSummary(input: ExecutiveSummaryInput): ExecutiveSummar
 }
 
 export function generateExecutiveSummary(input: ExecutiveSummaryInput): ExecutiveSummaryResult {
-  const { columns, data } = input;
+  const data = normalizeReportRows(input.data);
+  const columns = normalizeReportColumns(input.columns, data);
+  const normalizedInput = { ...input, columns, data };
 
   if (!data.length || !columns.length) {
     return {
@@ -233,6 +280,8 @@ export function generateExecutiveSummary(input: ExecutiveSummaryInput): Executiv
   if (
     hasColumns(columns, [
       "grupo_dre",
+      "subgrupo",
+      "conta_contabil",
       "realizado_rs",
       "orcado_rs",
       "variancia_rs",
@@ -240,7 +289,20 @@ export function generateExecutiveSummary(input: ExecutiveSummaryInput): Executiv
       "tipo_variacao"
     ])
   ) {
-    return dreBudgetSummary(input);
+    return accountOverrunSummary(normalizedInput);
+  }
+
+  if (
+    hasColumns(columns, [
+      "grupo_dre",
+      "realizado_rs",
+      "orcado_rs",
+      "variancia_rs",
+      "variancia_perc",
+      "tipo_variacao"
+    ])
+  ) {
+    return dreBudgetSummary(normalizedInput);
   }
 
   if (
@@ -256,7 +318,7 @@ export function generateExecutiveSummary(input: ExecutiveSummaryInput): Executiv
       "ranking_no_tipo"
     ])
   ) {
-    return accountOverrunSummary(input);
+    return accountOverrunSummary(normalizedInput);
   }
 
   if (
@@ -274,7 +336,7 @@ export function generateExecutiveSummary(input: ExecutiveSummaryInput): Executiv
       "status_rol"
     ])
   ) {
-    return brandResultSummary(input);
+    return brandResultSummary(normalizedInput);
   }
 
   if (
@@ -288,7 +350,7 @@ export function generateExecutiveSummary(input: ExecutiveSummaryInput): Executiv
       "ranking_desempenho"
     ])
   ) {
-    return costCenterSummary(input);
+    return costCenterSummary(normalizedInput);
   }
 
   if (
@@ -301,8 +363,8 @@ export function generateExecutiveSummary(input: ExecutiveSummaryInput): Executiv
       "ranking_na_marca"
     ])
   ) {
-    return opexByBrandSectorSummary(input);
+    return opexByBrandSectorSummary(normalizedInput);
   }
 
-  return genericSummary(input);
+  return genericSummary(normalizedInput);
 }

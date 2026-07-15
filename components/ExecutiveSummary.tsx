@@ -44,14 +44,15 @@ export function ExecutiveSummary({
 }: ExecutiveSummaryProps) {
   const [revision, setRevision] = useState(0);
   const [copied, setCopied] = useState(false);
-  const hasBackendSummary = Boolean(backendSummary);
+  const hasResultRows = data.length > 0;
+  const usesBackendSummary = Boolean(backendSummary) && !hasResultRows;
   const summary = useMemo(() => {
-    if (backendSummary) {
+    if (!hasResultRows && backendSummary) {
       return backendSummary;
     }
 
     return generateExecutiveSummary({ question, columns, data, metadata });
-  }, [backendSummary, columns, data, metadata, question, revision]);
+  }, [backendSummary, columns, data, hasResultRows, metadata, question, revision]);
 
   useEffect(() => {
     onSummaryGenerated?.(summary);
@@ -88,7 +89,7 @@ export function ExecutiveSummary({
             )}
             {copied ? "Copiado" : "Copiar resumo"}
           </button>
-          {!hasBackendSummary ? (
+          {!usesBackendSummary ? (
             <button
               type="button"
               onClick={() => setRevision((current) => current + 1)}
@@ -124,9 +125,9 @@ export function ExecutiveSummary({
       ) : null}
 
       <p className="mt-4 text-xs font-medium text-slate-500">
-        {hasBackendSummary
+        {usesBackendSummary
           ? "Resumo executivo gerado pelo serviço de orquestração."
-          : "Resumo gerado automaticamente a partir dos dados retornados."}
+          : "Resumo executivo gerado a partir dos resultados normalizados da interface."}
       </p>
     </section>
   );
