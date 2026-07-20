@@ -45,7 +45,7 @@ export function InterfaceSettingsPanel({
 
     onSaveSettings(normalized);
     setDraft(normalized);
-    setMessage("ConfiguraÃ§Ãµes salvas.");
+    setMessage("Configurações salvas.");
     window.setTimeout(() => setMessage(""), 1800);
   }
 
@@ -53,7 +53,7 @@ export function InterfaceSettingsPanel({
     const defaults = getDefaultInterfaceSettings();
     setDraft(defaults);
     onResetSettings();
-    setMessage("PadrÃ£o restaurado.");
+    setMessage("Padrão restaurado.");
     window.setTimeout(() => setMessage(""), 1800);
   }
 
@@ -61,14 +61,14 @@ export function InterfaceSettingsPanel({
     <section className="rounded-md border border-slate-200 bg-white p-4 shadow-soft">
       <div className="mb-3 flex items-center gap-2">
         <Settings className="h-5 w-5 text-lake" aria-hidden="true" />
-        <h2 className="text-lg font-semibold text-ink">ConfiguraÃ§Ãµes da interface</h2>
+        <h2 className="text-lg font-semibold text-ink">Configurações da interface</h2>
       </div>
 
       <div className="space-y-3 text-sm">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">
             <span className="text-xs font-semibold uppercase text-slate-500">
-              PDF â€” mÃ¡ximo de linhas
+              PDF — máximo de linhas
             </span>
             <input
               type="number"
@@ -81,7 +81,7 @@ export function InterfaceSettingsPanel({
           </label>
           <label className="block">
             <span className="text-xs font-semibold uppercase text-slate-500">
-              PDF â€” mÃ¡ximo de colunas
+              PDF — máximo de colunas
             </span>
             <input
               type="number"
@@ -96,7 +96,7 @@ export function InterfaceSettingsPanel({
 
         <label className="block">
           <span className="text-xs font-semibold uppercase text-slate-500">
-            PDF â€” mÃ¡ximo de linhas da SQL
+            PDF — máximo de linhas da SQL
           </span>
           <input
             type="number"
@@ -110,7 +110,7 @@ export function InterfaceSettingsPanel({
 
         <label className="block">
           <span className="text-xs font-semibold uppercase text-slate-500">
-            Modo padrÃ£o de resultado
+            Modo padrão de resultado
           </span>
           <select
             value={draft.defaultResultMode}
@@ -119,19 +119,19 @@ export function InterfaceSettingsPanel({
             }
             className="mt-1 h-9 w-full rounded-md border border-slate-200 px-2 text-sm text-ink shadow-sm focus:border-blue-400 focus:outline-none"
           >
-            <option value="auto">AutomÃ¡tico</option>
+            <option value="auto">Automático</option>
             <option value="manual">Manual</option>
           </select>
         </label>
 
         <div className="grid gap-2">
           {[
-            ["pdfIncludeSql", "PDF â€” incluir SQL"],
-            ["markdownIncludeSql", "Markdown â€” incluir SQL no fallback local"],
+            ["pdfIncludeSql", "PDF — incluir SQL"],
+            ["markdownIncludeSql", "Markdown — incluir SQL no fallback local"],
             ["useSqlCache", "Usar cache de SQL por padrão"],
-            ["showDiagnosticsPanel", "Mostrar painel de diagnÃ³stico"],
-            ["showExecutiveReportHistory", "Mostrar histÃ³rico de relatÃ³rios"],
-            ["showWhatsAppDemoPanel", "Mostrar painel de demonstraÃ§Ã£o WhatsApp"]
+            ["showDiagnosticsPanel", "Mostrar painel de diagnóstico"],
+            ["showExecutiveReportHistory", "Mostrar histórico de relatórios"],
+            ["showWhatsAppDemoPanel", "Mostrar painel de demonstração WhatsApp"]
           ].map(([key, label]) => (
             <label
               key={key}
@@ -163,7 +163,7 @@ export function InterfaceSettingsPanel({
             className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-lake px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-teal-800"
           >
             <Save className="h-3.5 w-3.5" aria-hidden="true" />
-            Salvar configuraÃ§Ãµes
+            Salvar configurações
           </button>
           <button
             type="button"
@@ -171,7 +171,7 @@ export function InterfaceSettingsPanel({
             className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-ink shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
           >
             <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-            Restaurar padrÃ£o
+            Restaurar padrão
           </button>
         </div>
       </div>

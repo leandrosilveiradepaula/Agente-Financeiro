@@ -12,6 +12,7 @@ import {
   downloadMarkdownFile
 } from "@/lib/executive-report-markdown";
 import type { InterfaceSettings } from "@/lib/interface-settings";
+import { prioritizePresentationColumns } from "@/lib/report-column-priority";
 import type { ExecutiveSummaryResult, ResultRow } from "@/lib/types";
 
 type ExecutiveReportActionsProps = {
@@ -48,6 +49,7 @@ export function ExecutiveReportActions({
   const [downloaded, setDownloaded] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [actionError, setActionError] = useState("");
+  const previewColumns = prioritizePresentationColumns(columns, settings?.pdfMaxColumns ?? 8);
 
   function getMarkdownReport() {
     return (
@@ -206,7 +208,7 @@ export function ExecutiveReportActions({
                 <table className="w-full min-w-[520px] text-left text-xs">
                   <thead className="bg-slate-50 text-slate-500">
                     <tr>
-                      {columns.slice(0, 8).map((column) => (
+                      {previewColumns.map((column) => (
                         <th key={column} className="px-2 py-2">
                           {column}
                         </th>
@@ -216,7 +218,7 @@ export function ExecutiveReportActions({
                   <tbody className="divide-y divide-slate-200">
                     {data.slice(0, 5).map((row, index) => (
                       <tr key={index}>
-                        {columns.slice(0, 8).map((column) => (
+                        {previewColumns.map((column) => (
                           <td key={column} className="px-2 py-2">
                             {String(row[column] ?? "")}
                           </td>

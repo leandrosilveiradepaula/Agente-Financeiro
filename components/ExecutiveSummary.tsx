@@ -17,7 +17,8 @@ type ExecutiveSummaryProps = {
     detected_intent?: string;
   };
   backendSummary?: ExecutiveSummaryResult | null;
-  onSummaryGenerated?: (summary: ExecutiveSummaryResult) => void;
+  resultKey?: string;
+  onSummaryGenerated?: (summary: ExecutiveSummaryResult, resultKey?: string) => void;
 };
 
 function summaryToText(summary: ExecutiveSummaryResult) {
@@ -40,22 +41,24 @@ export function ExecutiveSummary({
   data,
   metadata,
   backendSummary,
+  resultKey,
   onSummaryGenerated
 }: ExecutiveSummaryProps) {
   const [revision, setRevision] = useState(0);
   const [copied, setCopied] = useState(false);
-  const hasBackendSummary = Boolean(backendSummary);
+  const hasResultRows = data.length > 0;
+  const usesBackendSummary = Boolean(backendSummary) && !hasResultRows;
   const summary = useMemo(() => {
-    if (backendSummary) {
+    if (!hasResultRows && backendSummary) {
       return backendSummary;
     }
 
     return generateExecutiveSummary({ question, columns, data, metadata });
-  }, [backendSummary, columns, data, metadata, question, revision]);
+  }, [backendSummary, columns, data, hasResultRows, metadata, question, revision]);
 
   useEffect(() => {
-    onSummaryGenerated?.(summary);
-  }, [onSummaryGenerated, summary]);
+    onSummaryGenerated?.(summary, resultKey);
+  }, [onSummaryGenerated, resultKey, summary]);
 
   async function copySummary() {
     await navigator.clipboard.writeText(summaryToText(summary));
@@ -88,7 +91,7 @@ export function ExecutiveSummary({
             )}
             {copied ? "Copiado" : "Copiar resumo"}
           </button>
-          {!hasBackendSummary ? (
+          {!usesBackendSummary ? (
             <button
               type="button"
               onClick={() => setRevision((current) => current + 1)}
@@ -124,9 +127,9 @@ export function ExecutiveSummary({
       ) : null}
 
       <p className="mt-4 text-xs font-medium text-slate-500">
-        {hasBackendSummary
+        {usesBackendSummary
           ? "Resumo executivo gerado pelo serviço de orquestração."
-          : "Resumo gerado automaticamente a partir dos dados retornados."}
+          : "Resumo executivo gerado a partir dos resultados normalizados da interface."}
       </p>
     </section>
   );

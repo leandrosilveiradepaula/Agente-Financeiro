@@ -2,6 +2,8 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { InterfaceSettings } from "@/lib/interface-settings";
 import { formatBRL, formatNumber, formatPercent } from "@/lib/number-formatting";
+import { parseReportNumber } from "@/lib/report-row-normalization";
+import { prioritizePresentationColumns } from "@/lib/report-column-priority";
 import { AGENT_VERSION, type ExecutiveSummaryResult, type ResultRow } from "@/lib/types";
 
 export type ExecutiveReportMetadata = {
@@ -78,26 +80,7 @@ function truncatePdfText(text: string) {
 }
 
 function parseNumericValue(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-
-  if (!trimmed) {
-    return null;
-  }
-
-  const normalized = trimmed.includes(",")
-    ? trimmed.replace(/\./g, "").replace(",", ".")
-    : trimmed;
-  const parsed = Number(normalized);
-
-  return Number.isFinite(parsed) ? parsed : null;
+  return parseReportNumber(value);
 }
 
 function formatPdfTableValue(column: string, value: unknown): string {
@@ -280,7 +263,7 @@ function drawTable(
   maxRows: number,
   maxColumns: number
 ) {
-  const tableColumns = columns.slice(0, maxColumns);
+  const tableColumns = prioritizePresentationColumns(columns, maxColumns);
   const tableRows = data.slice(0, maxRows);
 
   y = drawSectionTitle(doc, "Tabela resumida", y);
@@ -330,10 +313,10 @@ function drawTable(
     doc.setFontSize(8.5);
     y = drawWrappedText(
       doc,
-      `Tabela limitada às primeiras ${Math.min(maxRows, data.length)} linhas e ${Math.min(
+      `Tabela limitada às primeiras ${Math.min(maxRows, data.length)} linhas e às ${Math.min(
         maxColumns,
         columns.length
-      )} colunas no PDF. O resultado completo permanece disponível na interface e no CSV.`,
+      )} colunas principais no PDF. O resultado completo permanece disponível na interface e no CSV.`,
       theme.margin,
       y,
       contentWidth(doc),

@@ -54,4 +54,30 @@ describe("normalizeWatsonResult", () => {
     expect(result.data).toEqual([]);
     expect(result.row_count).toBe(0);
   });
+
+  it("preserves backend keys without creating presentation aliases", () => {
+    const result = normalizeWatsonResult({
+      columns: [
+        "grupo",
+        "valor_realizado",
+        "valor_orcado"
+      ],
+      data: [
+        {
+          grupo: "14 - IMPOSTO SOBRE O LUCRO",
+          valor_realizado: "-R$ 999.476,60",
+          valor_orcado: "-R$ 437.283,28"
+        }
+      ]
+    });
+
+    expect(result.columns).toEqual(["grupo", "valor_realizado", "valor_orcado"]);
+    expect(result.data[0]).toEqual({
+      grupo: "14 - IMPOSTO SOBRE O LUCRO",
+      valor_realizado: "-R$ 999.476,60",
+      valor_orcado: "-R$ 437.283,28"
+    });
+    expect("grupo_dre" in result.data[0]).toBe(false);
+    expect("realizado_rs" in result.data[0]).toBe(false);
+  });
 });
