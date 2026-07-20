@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { generateExecutiveSummary } from "@/lib/generateExecutiveSummary";
 
+function normalizeText(value: string) {
+  return value.replace(/\u00a0/g, " ");
+}
+
 describe("generateExecutiveSummary", () => {
   const varianceColumns = [
     "grupo_dre",
@@ -11,16 +15,9 @@ describe("generateExecutiveSummary", () => {
     "tipo_variacao"
   ];
 
-  it("summarizes DRE budget variance tables", () => {
+  it("summarizes DRE budget variance tables without treating dimensions as numbers", () => {
     const summary = generateExecutiveSummary({
-      columns: [
-        "grupo_dre",
-        "realizado_rs",
-        "orcado_rs",
-        "variancia_rs",
-        "variancia_perc",
-        "tipo_variacao"
-      ],
+      columns: varianceColumns,
       data: [
         {
           grupo_dre: "01 - RECEITA DE VENDAS",
@@ -40,14 +37,14 @@ describe("generateExecutiveSummary", () => {
         }
       ]
     });
+    const text = [...summary.paragraphs, ...summary.highlights].join(" ");
 
     expect(summary.paragraphs[0]).toContain("01 - RECEITA DE VENDAS");
-    expect(summary.highlights.some((highlight) => highlight.includes("Maior variação negativa"))).toBe(
-      true
-    );
+    expect(text).toContain("Maior variação negativa");
+    expect(text).not.toContain("grupo_dre: maior valor observado");
   });
 
-  it("summarizes brand result tables", () => {
+  it("summarizes brand result tables before generic ranking logic", () => {
     const summary = generateExecutiveSummary({
       columns: [
         "marca",
@@ -78,7 +75,7 @@ describe("generateExecutiveSummary", () => {
         },
         {
           marca: "B",
-          rol_rs: 100,
+          rol_rs: 1200,
           cmv_rs: -20,
           lucro_bruto_rs: 80,
           margem_contribuicao_rs: 70,
@@ -91,20 +88,24 @@ describe("generateExecutiveSummary", () => {
         }
       ]
     });
+    const text = [...summary.paragraphs, ...summary.highlights].join(" ");
 
-    expect(summary.paragraphs.join(" ")).toContain("colunas de ranking válidas");
-    expect(summary.highlights.join(" ")).toContain("ranking_por_valor");
-    expect(summary.highlights.join(" ")).toContain("ranking_por_perc_rol");
+    expect(text).toContain("Maior resultado líquido: A");
+    expect(text).toContain("Melhor resultado sobre ROL: B");
+    expect(text).toContain("Maior ROL: B");
+    expect(text).not.toContain("colunas de ranking válidas");
   });
 
-  it("falls back to a generic summary", () => {
+  it("falls back safely without numeric highlights for categorical columns", () => {
     const summary = generateExecutiveSummary({
-      columns: ["nome", "valor"],
-      data: [{ nome: "Item A", valor: 10 }]
+      columns: ["nome", "categoria"],
+      data: [{ nome: "Item A", categoria: "Grupo 1" }]
     });
+    const text = [...summary.paragraphs, ...summary.highlights].join(" ");
 
     expect(summary.paragraphs[0]).toContain("1 linhas");
     expect(summary.warnings?.length).toBeGreaterThan(0);
+    expect(text).not.toContain("maior valor observado");
   });
 
   it("normalizes budget overrun values before summarizing", () => {
@@ -130,22 +131,23 @@ describe("generateExecutiveSummary", () => {
           variancia_perc: -128.57,
           tipo_variacao: ""
         }
-      ],
+      ]
     });
+    const text = [...summary.paragraphs, ...summary.highlights].join(" ");
 
-    expect(summary.paragraphs[0]).toContain("4.03.01.01.01");
-    expect(summary.paragraphs[0]).toContain("-R$");
-    expect(summary.paragraphs[0]).toContain("562.193,32");
+    expect(summary.paragraphs[0]).toContain("14 - IMPOSTO SOBRE O LUCRO");
+    expect(normalizeText(summary.paragraphs[0])).toContain("-R$ 562.193,32");
     expect(summary.paragraphs[0]).toContain("-128,57%");
-    expect(summary.highlights.join(" ")).toContain("4.03.01.01.01");
+    expect(text).toContain("Maiores estouros de orçamento");
+    expect(text).toContain("4.03.01.01.01");
   });
 
   it("does not create a positive highlight when all variances are negative", () => {
     const summary = generateExecutiveSummary({
       columns: varianceColumns,
       data: [
-        { grupo_dre: "A", variancia_rs: -562193.32 },
-        { grupo_dre: "B", variancia_rs: -16759.68 }
+        { grupo_dre: "A", realizado_rs: 0, orcado_rs: 10, variancia_rs: -562193.32 },
+        { grupo_dre: "B", realizado_rs: 0, orcado_rs: 10, variancia_rs: -16759.68 }
       ]
     });
     const highlights = summary.highlights.join(" ");
@@ -160,8 +162,8 @@ describe("generateExecutiveSummary", () => {
     const summary = generateExecutiveSummary({
       columns: varianceColumns,
       data: [
-        { grupo_dre: "A", variancia_rs: 100 },
-        { grupo_dre: "B", variancia_rs: 250 }
+        { grupo_dre: "A", realizado_rs: 100, orcado_rs: 0, variancia_rs: 100 },
+        { grupo_dre: "B", realizado_rs: 250, orcado_rs: 0, variancia_rs: 250 }
       ]
     });
     const highlights = summary.highlights.join(" ");
@@ -178,11 +180,15 @@ describe("generateExecutiveSummary", () => {
       data: [
         {
           grupo_dre: "01 - RECEITA DE VENDAS",
+          realizado_rs: 100,
+          orcado_rs: 0,
           variancia_rs: 2022762.81,
           variancia_perc: 5.32
         },
         {
           grupo_dre: "14 - IMPOSTO SOBRE O LUCRO",
+          realizado_rs: 0,
+          orcado_rs: 100,
           variancia_rs: -800322.4,
           variancia_perc: -134.41
         }
@@ -192,36 +198,36 @@ describe("generateExecutiveSummary", () => {
 
     expect(summary.paragraphs[0]).toContain("principal variação positiva");
     expect(summary.paragraphs[0]).toContain("01 - RECEITA DE VENDAS");
-    expect(summary.paragraphs[0]).toContain("R$");
-    expect(summary.paragraphs[0]).toContain("2.022.762,81");
+    expect(normalizeText(summary.paragraphs[0])).toContain("R$ 2.022.762,81");
     expect(highlights).toContain("Maior variação positiva");
     expect(highlights).toContain("Maior variação negativa");
-  });
-
-  it("creates both variance highlights when both signs exist", () => {
-    const summary = generateExecutiveSummary({
-      columns: varianceColumns,
-      data: [
-        { grupo_dre: "A", variancia_rs: -100 },
-        { grupo_dre: "B", variancia_rs: 250 }
-      ]
-    });
-    const highlights = summary.highlights.join(" ");
-
-    expect(highlights).toContain("Maior variação negativa");
-    expect(highlights).toContain("Maior variação positiva");
   });
 
   it("never classifies a negative variance close to zero as positive", () => {
     const summary = generateExecutiveSummary({
       columns: varianceColumns,
-      data: [{ grupo_dre: "A", variancia_rs: -0.01 }]
+      data: [{ grupo_dre: "A", realizado_rs: 0, orcado_rs: 1, variancia_rs: -0.01 }]
     });
     const summaryText = [...summary.paragraphs, ...summary.highlights].join(" ");
 
     expect(summaryText).toContain("variação negativa");
     expect(summaryText).toContain("Maior variação negativa");
     expect(summaryText).not.toContain("Maior variação positiva");
+  });
+
+  it("summarizes cost center best and worst performance from explicit variance", () => {
+    const summary = generateExecutiveSummary({
+      columns: ["centro_custo", "variancia_rs", "ranking_desempenho", "ranking_menores"],
+      data: [
+        { centro_custo: "Comercial", variancia_rs: 1200, ranking_desempenho: 1, ranking_menores: 2 },
+        { centro_custo: "Administrativo", variancia_rs: -900, ranking_desempenho: 2, ranking_menores: 1 }
+      ]
+    });
+    const text = [...summary.paragraphs, ...summary.highlights].join(" ");
+
+    expect(text).toContain("Melhor centro de custo: Comercial");
+    expect(text).toContain("Pior centro de custo: Administrativo");
+    expect(text).not.toContain("ranking_desempenho: liderança");
   });
 
   it("summarizes generic tabular rankings with related metrics", () => {

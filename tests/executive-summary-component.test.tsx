@@ -141,8 +141,8 @@ describe("ExecutiveSummary", () => {
     expect(view.textContent).toContain(
       "Resumo executivo gerado a partir dos resultados normalizados da interface."
     );
-    expect(view.textContent).toContain("ranking_no_tipo");
-    expect(view.textContent).toContain("liderança na posição 1");
+    expect(view.textContent).toContain("Maior variação negativa");
+    expect(view.textContent).toContain("Maiores estouros de orçamento");
   });
 
   it("recalculates summary when a later execution returns a different dataset", () => {
