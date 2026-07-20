@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   BarChart3,
   CheckCircle2,
@@ -58,6 +58,11 @@ import {
   writeQueryHistory
 } from "@/lib/history";
 import { normalizeWatsonResult } from "@/lib/watson-result-normalization";
+import { getAgentDisplayVersion } from "@/lib/agent-display-version";
+import {
+  createNewSqlGenerationResetState,
+  isLatestInterfaceRequest
+} from "@/lib/agent-interface-state";
 import {
   AGENT_VERSION,
   type ExecuteWatsonResponse,
@@ -79,6 +84,11 @@ type ExecutionState = {
   error: string;
   message: string;
   source: "automatico" | "manual" | null;
+};
+
+type ExecutiveSummaryState = {
+  resultKey: string;
+  summary: ExecutiveSummaryResult;
 };
 
 const PROFILE_POLICY_MANAGEMENT_ENABLED =
@@ -180,6 +190,19 @@ function mergeQueryHistoryItems(...groups: QueryHistoryItem[][]) {
     .slice(0, 10);
 }
 
+function buildExecutionResultKey(response: ExecuteWatsonResponse | null) {
+  if (!response?.data.length || !response.columns.length) {
+    return "";
+  }
+
+  return JSON.stringify({
+    query_id: response.query_id || "",
+    row_count: response.data.length,
+    columns: response.columns,
+    data: response.data
+  });
+}
+
 async function fetchPersistentQueryHistory() {
   const response = await fetch("/api/history/runs", { cache: "no-store" });
 
@@ -224,8 +247,10 @@ export default function Home() {
   });
   const [resultMode, setResultMode] = useState<ResultMode>("auto");
   const [manualWatsonJson, setManualWatsonJson] = useState("");
-  const [executiveSummary, setExecutiveSummary] = useState<ExecutiveSummaryResult | null>(null);
+  const [executiveSummaryState, setExecutiveSummaryState] =
+    useState<ExecutiveSummaryState | null>(null);
   const [useSqlCache, setUseSqlCache] = useState(false);
+  const generationRequestRef = useRef(0);
 
   const canGenerateSqlByPolicy = Boolean(accountPolicy?.can_generate_sql);
   const canExecuteSqlByPolicy = Boolean(accountPolicy?.can_execute_sql);
@@ -249,7 +274,13 @@ export default function Home() {
   const canPrepareGeneration =
     question.trim().length > 0 && canGenerateSqlByPolicy && !policyLoading;
   const canExecuteWatson =
-    !generation.isLoading && !execution.isLoading && canExecuteSqlByPolicy && !policyLoading;
+    !generation.isLoading &&
+    !execution.isLoading &&
+    canExecuteSqlByPolicy &&
+    !policyLoading &&
+    Boolean(generation.response?.success) &&
+    generation.response?.validation_status === "aprovado" &&
+    Boolean(sql.trim() || generation.response?.agent_run_id || generation.response?.run_id);
   const isSqlHidden = Boolean(generation.response?.sql_hidden || generation.response?.can_view_sql === false);
   const detectedIntent = generation.response?.detected_intent || "";
   const hasDetectedIntent = Boolean(detectedIntent && detectedIntent !== "nao_informado");
@@ -272,6 +303,16 @@ export default function Home() {
       generation.response?.detected_intent,
       generation.response?.validation_status
     ]
+  );
+  const executionResultKey = useMemo(
+    () => buildExecutionResultKey(execution.response),
+    [execution.response]
+  );
+  const executiveSummary =
+    executiveSummaryState?.resultKey === executionResultKey ? executiveSummaryState.summary : null;
+  const displayAgentVersion = useMemo(
+    () => getAgentDisplayVersion(),
+    []
   );
 
   useEffect(() => {
@@ -424,8 +465,12 @@ export default function Home() {
     });
   }
 
-  const markExecutiveSummaryGenerated = useCallback((summary: ExecutiveSummaryResult) => {
-    setExecutiveSummary(summary);
+  const markExecutiveSummaryGenerated = useCallback((summary: ExecutiveSummaryResult, resultKey?: string) => {
+    if (!resultKey || resultKey !== executionResultKey) {
+      return;
+    }
+
+    setExecutiveSummaryState({ resultKey, summary });
 
     if (!question.trim() || !canSeeReportHistory || !authenticatedUser?.id) {
       return;
@@ -497,7 +542,7 @@ export default function Home() {
         generated_at: new Date().toISOString()
       }, authenticatedUser.id)
     );
-  }, [authenticatedUser?.id, canSeeReportHistory, canViewSqlByPolicy, execution.response, generation.response?.detected_intent, generation.response?.validation_status, interfaceSettings.markdownIncludeSql, question, resultMetadata, sql]);
+  }, [authenticatedUser?.id, canSeeReportHistory, canViewSqlByPolicy, execution.response, executionResultKey, generation.response?.detected_intent, generation.response?.validation_status, interfaceSettings.markdownIncludeSql, question, resultMetadata, sql]);
 
   const markPdfExported = useCallback(() => {
     if (!question.trim() || !authenticatedUser?.id || !canSeeQueryHistory) {
@@ -681,7 +726,7 @@ export default function Home() {
       source: null
     });
     setManualWatsonJson("");
-    setExecutiveSummary(null);
+    setExecutiveSummaryState(null);
   }
 
   async function unlockInterface(event: FormEvent<HTMLFormElement>) {
@@ -761,11 +806,15 @@ export default function Home() {
       return;
     }
 
-    setGeneration((current) => ({
-      ...current,
-      isLoading: true,
-      error: ""
-    }));
+    const requestId = generationRequestRef.current + 1;
+    generationRequestRef.current = requestId;
+
+    const resetState = createNewSqlGenerationResetState();
+    setSql(resetState.sql);
+    setGeneration(resetState.generation);
+    setExecution(resetState.execution);
+    setExecutiveSummaryState(resetState.executiveSummaryState);
+    setManualWatsonJson("");
 
     try {
       const response = await fetch("/api/generate-sql", {
@@ -783,6 +832,10 @@ export default function Home() {
 
       const data = (await response.json()) as GenerateSqlResponse;
 
+      if (!isLatestInterfaceRequest(requestId, generationRequestRef.current)) {
+        return;
+      }
+
       if (!response.ok || !data.success) {
         throw new Error(data.message || friendlyPolicyError(data.error, data.error || "Não foi possível gerar a SQL."));
       }
@@ -795,7 +848,7 @@ export default function Home() {
         message: "",
         source: null
       });
-      setExecutiveSummary(null);
+      setExecutiveSummaryState(null);
       setGeneration({
         response: data,
         isLoading: false,
@@ -809,6 +862,10 @@ export default function Home() {
         })
       );
     } catch (error) {
+      if (!isLatestInterfaceRequest(requestId, generationRequestRef.current)) {
+        return;
+      }
+
       setGeneration((current) => ({
         ...current,
         isLoading: false,
@@ -855,7 +912,7 @@ export default function Home() {
       message: "",
       source: "automatico"
     });
-    setExecutiveSummary(null);
+    setExecutiveSummaryState(null);
 
     try {
       const response = await fetch("/api/execute-watson", {
@@ -952,7 +1009,7 @@ export default function Home() {
         message: "",
         source: "manual"
       });
-      setExecutiveSummary(null);
+      setExecutiveSummaryState(null);
       return;
     }
 
@@ -966,7 +1023,7 @@ export default function Home() {
         message: "",
         source: "manual"
       });
-      setExecutiveSummary(null);
+      setExecutiveSummaryState(null);
       return;
     }
 
@@ -978,7 +1035,7 @@ export default function Home() {
         message: "",
         source: "manual"
       });
-      setExecutiveSummary(null);
+      setExecutiveSummaryState(null);
       return;
     }
 
@@ -1049,7 +1106,7 @@ export default function Home() {
     },
     {
       label: "Versão",
-      value: generation.response?.agent_version || AGENT_VERSION,
+      value: displayAgentVersion,
       icon: ShieldCheck,
       tone: "neutral"
     },
@@ -1152,7 +1209,7 @@ export default function Home() {
           <div className="flex flex-col gap-2 sm:items-end">
             <div className="inline-flex w-fit items-center gap-2 rounded-md border border-blue-200 bg-white px-3 py-2 text-sm font-medium text-ledger shadow-sm">
               <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-              {AGENT_VERSION}
+              {displayAgentVersion}
             </div>
             <div className="flex flex-wrap gap-2 sm:justify-end">
               <span className="inline-flex rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
@@ -1323,7 +1380,7 @@ export default function Home() {
                     <AgentDiagnosticsPanel
                       interfaceVersion={INTERFACE_VERSION}
                       baseline={INTERFACE_BASELINE}
-                      agentVersion={AGENT_VERSION}
+                      agentVersion={displayAgentVersion}
                       generation={generation}
                       execution={execution}
                       metadata={resultMetadata}
@@ -1475,10 +1532,12 @@ export default function Home() {
 
               {execution.response?.data.length ? (
                 <ExecutiveSummary
+                  key={executionResultKey}
                   question={question}
                   columns={execution.response.columns}
                   data={execution.response.data}
                   metadata={resultMetadata}
+                  resultKey={executionResultKey}
                   backendSummary={
                     execution.response.relatorio_executivo ??
                     execution.response.executive_summary ??

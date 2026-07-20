@@ -88,7 +88,7 @@ export function ResultTable({ columns, data }: ResultTableProps) {
   function handleExportCsv() {
     try {
       setExportError("");
-      exportCsv(columns, filteredData);
+      exportCsv(columns, data);
     } catch {
       setExportError("Não foi possível exportar o CSV. Tente novamente em instantes.");
     }
