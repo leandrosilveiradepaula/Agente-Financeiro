@@ -1,7 +1,7 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   BarChart3,
   CheckCircle2,
@@ -58,6 +58,11 @@ import {
   writeQueryHistory
 } from "@/lib/history";
 import { normalizeWatsonResult } from "@/lib/watson-result-normalization";
+import { getAgentDisplayVersion } from "@/lib/agent-display-version";
+import {
+  createNewSqlGenerationResetState,
+  isLatestInterfaceRequest
+} from "@/lib/agent-interface-state";
 import {
   AGENT_VERSION,
   type ExecuteWatsonResponse,
@@ -113,7 +118,7 @@ type AccountPolicy = {
 };
 
 const INTERFACE_VERSION = "interface-v2.2.12";
-const INTERFACE_BASELINE = "v2.2.12 â€” ProteÃ§Ã£o de acesso Ã  interface e APIs internas";
+const INTERFACE_BASELINE = "v2.2.12 — Proteção de acesso à interface e APIs internas";
 
 function statusTone(value: string): "neutral" | "success" | "warning" | "error" {
   const normalized = value.toLowerCase();
@@ -151,20 +156,20 @@ function statusBadge(value: string) {
   return value || "pendente";
 }
 
-function friendlyPolicyError(code?: string, fallback = "NÃ£o foi possÃ­vel concluir a aÃ§Ã£o.") {
+function friendlyPolicyError(code?: string, fallback = "Não foi possível concluir a ação.") {
   const messages: Record<string, string> = {
     profile_cannot_generate_sql:
-      "Seu perfil nÃ£o possui permissÃ£o para gerar consultas SQL.",
+      "Seu perfil não possui permissão para gerar consultas SQL.",
     profile_cannot_execute_sql:
-      "Seu perfil nÃ£o possui permissÃ£o para executar consultas SQL.",
+      "Seu perfil não possui permissão para executar consultas SQL.",
     profile_not_allowed_for_intent:
-      "Seu perfil nÃ£o possui permissÃ£o para consultar esse tipo de informaÃ§Ã£o.",
+      "Seu perfil não possui permissão para consultar esse tipo de informação.",
     profile_not_allowed_for_table:
-      "Seu perfil nÃ£o possui permissÃ£o para consultar uma das tabelas solicitadas.",
+      "Seu perfil não possui permissão para consultar uma das tabelas solicitadas.",
     profile_policy_not_found:
-      "NÃ£o foi encontrada uma polÃ­tica ativa para o seu perfil.",
+      "Não foi encontrada uma política ativa para o seu perfil.",
     no_allowed_tables_detected:
-      "NÃ£o foi possÃ­vel validar as tabelas da consulta para o seu perfil."
+      "Não foi possível validar as tabelas da consulta para o seu perfil."
   };
 
   return code ? messages[code] ?? fallback : fallback;
@@ -245,6 +250,7 @@ export default function Home() {
   const [executiveSummaryState, setExecutiveSummaryState] =
     useState<ExecutiveSummaryState | null>(null);
   const [useSqlCache, setUseSqlCache] = useState(false);
+  const generationRequestRef = useRef(0);
 
   const canGenerateSqlByPolicy = Boolean(accountPolicy?.can_generate_sql);
   const canExecuteSqlByPolicy = Boolean(accountPolicy?.can_execute_sql);
@@ -268,7 +274,13 @@ export default function Home() {
   const canPrepareGeneration =
     question.trim().length > 0 && canGenerateSqlByPolicy && !policyLoading;
   const canExecuteWatson =
-    !generation.isLoading && !execution.isLoading && canExecuteSqlByPolicy && !policyLoading;
+    !generation.isLoading &&
+    !execution.isLoading &&
+    canExecuteSqlByPolicy &&
+    !policyLoading &&
+    Boolean(generation.response?.success) &&
+    generation.response?.validation_status === "aprovado" &&
+    Boolean(sql.trim() || generation.response?.agent_run_id || generation.response?.run_id);
   const isSqlHidden = Boolean(generation.response?.sql_hidden || generation.response?.can_view_sql === false);
   const detectedIntent = generation.response?.detected_intent || "";
   const hasDetectedIntent = Boolean(detectedIntent && detectedIntent !== "nao_informado");
@@ -298,6 +310,10 @@ export default function Home() {
   );
   const executiveSummary =
     executiveSummaryState?.resultKey === executionResultKey ? executiveSummaryState.summary : null;
+  const displayAgentVersion = useMemo(
+    () => getAgentDisplayVersion(),
+    []
+  );
 
   useEffect(() => {
     const settings = readInterfaceSettings();
@@ -427,7 +443,7 @@ export default function Home() {
       if (active) {
         const code = error instanceof Error ? error.message : "policy_load_failed";
         setAccountPolicy(null);
-        setPolicyError(friendlyPolicyError(code, "NÃ£o foi possÃ­vel carregar as permissÃµes do seu perfil."));
+        setPolicyError(friendlyPolicyError(code, "Não foi possível carregar as permissões do seu perfil."));
       }
     } finally {
       if (active) {
@@ -647,7 +663,7 @@ export default function Home() {
   }
 
   function clearHistory() {
-    if (!window.confirm("Tem certeza que deseja limpar o histÃ³rico local?")) {
+    if (!window.confirm("Tem certeza que deseja limpar o histórico local?")) {
       return;
     }
 
@@ -741,7 +757,7 @@ export default function Home() {
       };
 
       if (!response.ok || !data.success) {
-        setAuthError(response.status === 401 ? "E-mail ou senha invÃ¡lidos." : "NÃ£o foi possÃ­vel entrar agora.");
+        setAuthError(response.status === 401 ? "E-mail ou senha inválidos." : "Não foi possível entrar agora.");
         setAuthState("locked");
         return;
       }
@@ -751,7 +767,7 @@ export default function Home() {
       setAuthState("unlocked");
       await loadAccountPolicy();
     } catch {
-      setAuthError("NÃ£o foi possÃ­vel entrar agora.");
+      setAuthError("Não foi possível entrar agora.");
       setAuthState("locked");
     } finally {
       setAuthLoading(false);
@@ -785,16 +801,20 @@ export default function Home() {
       setGeneration((current) => ({
         ...current,
         isLoading: false,
-        error: "Seu perfil nÃ£o possui permissÃ£o para gerar consultas neste agente financeiro."
+        error: "Seu perfil não possui permissão para gerar consultas neste agente financeiro."
       }));
       return;
     }
 
-    setGeneration((current) => ({
-      ...current,
-      isLoading: true,
-      error: ""
-    }));
+    const requestId = generationRequestRef.current + 1;
+    generationRequestRef.current = requestId;
+
+    const resetState = createNewSqlGenerationResetState();
+    setSql(resetState.sql);
+    setGeneration(resetState.generation);
+    setExecution(resetState.execution);
+    setExecutiveSummaryState(resetState.executiveSummaryState);
+    setManualWatsonJson("");
 
     try {
       const response = await fetch("/api/generate-sql", {
@@ -812,8 +832,12 @@ export default function Home() {
 
       const data = (await response.json()) as GenerateSqlResponse;
 
+      if (!isLatestInterfaceRequest(requestId, generationRequestRef.current)) {
+        return;
+      }
+
       if (!response.ok || !data.success) {
-        throw new Error(data.message || friendlyPolicyError(data.error, data.error || "NÃ£o foi possÃ­vel gerar a SQL."));
+        throw new Error(data.message || friendlyPolicyError(data.error, data.error || "Não foi possível gerar a SQL."));
       }
 
       setSql(data.sql);
@@ -838,6 +862,10 @@ export default function Home() {
         })
       );
     } catch (error) {
+      if (!isLatestInterfaceRequest(requestId, generationRequestRef.current)) {
+        return;
+      }
+
       setGeneration((current) => ({
         ...current,
         isLoading: false,
@@ -855,7 +883,7 @@ export default function Home() {
         setExecution({
           response: null,
           isLoading: false,
-          error: "Seu perfil nÃ£o possui permissÃ£o para executar consultas.",
+          error: "Seu perfil não possui permissão para executar consultas.",
           message: "",
           source: "automatico"
         });
@@ -961,7 +989,7 @@ export default function Home() {
       setExecution({
         response: null,
         isLoading: false,
-        error: "ExecuÃ§Ã£o automÃ¡tica ainda nÃ£o configurada. Use o modo manual para colar o retorno do Watson.",
+        error: "Execução automática ainda não configurada. Use o modo manual para colar o retorno do Watson.",
         message: "",
         source: "automatico"
       });
@@ -977,7 +1005,7 @@ export default function Home() {
       setExecution({
         response: null,
         isLoading: false,
-        error: "JSON invÃ¡lido. Verifique o conteÃºdo colado.",
+        error: "JSON inválido. Verifique o conteúdo colado.",
         message: "",
         source: "manual"
       });
@@ -1056,17 +1084,17 @@ export default function Home() {
       badge: generation.error ? "erro" : generation.response?.success ? "sucesso" : "pendente"
     },
     {
-      label: "IntenÃ§Ã£o",
-      value: hasDetectedIntent ? detectedIntent : "NÃ£o detectada",
+      label: "Intenção",
+      value: hasDetectedIntent ? detectedIntent : "Não detectada",
       icon: BarChart3,
       tone: hasDetectedIntent ? "success" : "neutral"
     },
     {
-      label: "ValidaÃ§Ã£o",
+      label: "Validação",
       value: generation.error
         ? "Erro"
         : generation.response?.validation_status === "aprovado"
-          ? "ValidaÃ§Ã£o aprovada"
+          ? "Validação aprovada"
           : generation.response?.validation_status || "Pendente",
       icon: generation.error ? XCircle : ShieldCheck,
       tone: generation.error
@@ -1077,20 +1105,20 @@ export default function Home() {
         : statusBadge(generation.response?.validation_status || "pendente")
     },
     {
-      label: "VersÃ£o",
-      value: generation.response?.agent_version || AGENT_VERSION,
+      label: "Versão",
+      value: displayAgentVersion,
       icon: ShieldCheck,
       tone: "neutral"
     },
     {
-      label: "ExecuÃ§Ã£o",
+      label: "Execução",
       value: execution.response?.success
         ? execution.source === "manual"
           ? "Resultado carregado manualmente"
           : `${execution.response.row_count} linhas`
         : execution.error
-          ? "ExecuÃ§Ã£o automÃ¡tica nÃ£o configurada"
-          : "NÃ£o iniciada",
+          ? "Execução automática não configurada"
+          : "Não iniciada",
       icon: execution.error ? XCircle : execution.response?.success ? CheckCircle2 : Clock3,
       tone: execution.error ? "error" : execution.response?.success ? "success" : "neutral",
       badge: execution.error ? "erro" : execution.source === "manual" ? "manual" : execution.response?.success ? "sucesso" : "pendente"
@@ -1181,14 +1209,14 @@ export default function Home() {
           <div className="flex flex-col gap-2 sm:items-end">
             <div className="inline-flex w-fit items-center gap-2 rounded-md border border-blue-200 bg-white px-3 py-2 text-sm font-medium text-ledger shadow-sm">
               <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-              {AGENT_VERSION}
+              {displayAgentVersion}
             </div>
             <div className="flex flex-wrap gap-2 sm:justify-end">
               <span className="inline-flex rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
                 interface-v1.0-demo
               </span>
               <span className="inline-flex rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800">
-                ExecuÃ§Ã£o Watson: manual
+                Execução Watson: manual
               </span>
             </div>
             {authenticatedUser ? (
@@ -1214,7 +1242,7 @@ export default function Home() {
                   className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-ink shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
                 >
                   <BarChart3 className="h-4 w-4" aria-hidden="true" />
-                  HistÃ³rico
+                  Histórico
                 </Link>
               ) : null}
               {accountPolicy?.can_manage_users ? (
@@ -1223,7 +1251,7 @@ export default function Home() {
                   className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-ink shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
                 >
                   <LockKeyhole className="h-4 w-4" aria-hidden="true" />
-                  SeguranÃ§a
+                  Segurança
                 </Link>
               ) : null}
               {accountPolicy?.can_manage_users && PROFILE_POLICY_MANAGEMENT_ENABLED ? (
@@ -1232,7 +1260,7 @@ export default function Home() {
                   className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-ink shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
                 >
                   <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-                  PolÃ­ticas
+                  Políticas
                 </Link>
               ) : null}
               {accountPolicy?.can_manage_users ? (
@@ -1241,7 +1269,7 @@ export default function Home() {
                   className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-800 shadow-sm transition hover:border-blue-300 hover:bg-blue-100"
                 >
                   <Settings className="h-4 w-4" aria-hidden="true" />
-                  AdministraÃ§Ã£o
+                  Administração
                 </Link>
               ) : null}
               <button
@@ -1268,7 +1296,7 @@ export default function Home() {
           <div className="flex min-w-0 flex-col gap-5">
             {policyLoading ? (
               <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-900">
-                Carregando permissÃµes do perfil...
+                Carregando permissões do perfil...
               </div>
             ) : null}
             {policyError ? (
@@ -1281,7 +1309,7 @@ export default function Home() {
               disabled={!canGenerateSqlByPolicy || policyLoading}
               disabledMessage={
                 !policyLoading && !canGenerateSqlByPolicy
-                  ? "Seu perfil nÃ£o possui permissÃ£o para gerar consultas neste agente financeiro."
+                  ? "Seu perfil não possui permissão para gerar consultas neste agente financeiro."
                   : undefined
               }
               isLoading={generation.isLoading}
@@ -1312,13 +1340,13 @@ export default function Home() {
                 <div className="rounded-md border border-slate-200 bg-white px-4 py-3 shadow-soft">
                   <h2 className="text-base font-semibold text-ink">Ferramentas operacionais</h2>
                   <p className="mt-1 text-xs font-medium text-steel">
-                    PainÃ©is auxiliares recolhidos para manter a tela principal limpa.
+                    Painéis auxiliares recolhidos para manter a tela principal limpa.
                   </p>
                 </div>
 
                 {showWhatsAppOperationalTool ? (
                   <AccordionSection
-                    title="DemonstraÃ§Ã£o WhatsApp"
+                    title="Demonstração WhatsApp"
                     summary={<WhatsAppOperationalSummary />}
                   >
                     <WhatsAppDemoPanel />
@@ -1327,8 +1355,8 @@ export default function Home() {
 
                 {showInterfaceSettingsTool ? (
                   <AccordionSection
-                    title="ConfiguraÃ§Ãµes da interface"
-                    summary="PreferÃªncias locais da interface"
+                    title="Configurações da interface"
+                    summary="Preferências locais da interface"
                   >
                     <InterfaceSettingsPanel
                       settings={interfaceSettings}
@@ -1340,19 +1368,19 @@ export default function Home() {
 
                 {showDiagnosticsTool ? (
                   <AccordionSection
-                    title="DiagnÃ³stico do agente"
+                    title="Diagnóstico do agente"
                     summary={
                       execution.response
                         ? execution.response.success
-                          ? `ExecuÃ§Ã£o OK â€¢ ${execution.response.row_count} linhas`
-                          : "ExecuÃ§Ã£o com erro"
-                        : "Sem execuÃ§Ã£o atual"
+                          ? `Execução OK • ${execution.response.row_count} linhas`
+                          : "Execução com erro"
+                        : "Sem execução atual"
                     }
                   >
                     <AgentDiagnosticsPanel
                       interfaceVersion={INTERFACE_VERSION}
                       baseline={INTERFACE_BASELINE}
-                      agentVersion={AGENT_VERSION}
+                      agentVersion={displayAgentVersion}
                       generation={generation}
                       execution={execution}
                       metadata={resultMetadata}
@@ -1366,7 +1394,7 @@ export default function Home() {
                 ) : null}
 
                 {showBenchmarkTool ? (
-                  <AccordionSection title="Benchmark e homologaÃ§Ã£o" summary="5 casos homologados">
+                  <AccordionSection title="Benchmark e homologação" summary="5 casos homologados">
                     <BenchmarkHomologationPanel baseline={INTERFACE_BASELINE} />
                   </AccordionSection>
                 ) : null}
@@ -1413,7 +1441,7 @@ export default function Home() {
 
             {isSqlHidden ? (
               <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-3 text-sm font-semibold text-blue-900">
-                A SQL foi gerada e validada, mas nÃ£o Ã© exibida para o seu perfil.
+                A SQL foi gerada e validada, mas não é exibida para o seu perfil.
               </div>
             ) : (
               <SqlEditor
@@ -1441,7 +1469,7 @@ export default function Home() {
                 <>
                   {!canExecuteSqlByPolicy ? (
                     <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
-                      Seu perfil nÃ£o possui permissÃ£o para executar consultas.
+                      Seu perfil não possui permissão para executar consultas.
                     </div>
                   ) : null}
                   <div className="mb-4 flex justify-end">
@@ -1472,14 +1500,14 @@ export default function Home() {
                   <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
                     <p className="text-xs font-semibold uppercase text-slate-500">Query ID</p>
                     <p className="mt-1 truncate text-sm font-semibold text-ink">
-                      {execution.response.query_id || "NÃ£o informado"}
+                      {execution.response.query_id || "Não informado"}
                     </p>
                   </div>
                   <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
                     <p className="text-xs font-semibold uppercase text-slate-500">Tempo</p>
                     <p className="mt-1 text-sm font-semibold text-ink">
                       {execution.response.execution_time_ms === null
-                        ? "NÃ£o informado"
+                        ? "Não informado"
                         : `${execution.response.execution_time_ms} ms`}
                     </p>
                   </div>
@@ -1521,7 +1549,7 @@ export default function Home() {
 
               {!execution.response?.data.length ? (
                 <div className="mb-4 rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm text-steel">
-                  O resumo executivo serÃ¡ gerado apÃ³s o carregamento do resultado.
+                  O resumo executivo será gerado após o carregamento do resultado.
                 </div>
               ) : null}
 
