@@ -1,0 +1,85 @@
+{
+  "release": "v2.2.31-test-error-observability",
+  "generated_at_utc": "2026-07-21T23:16:22.752832+00:00",
+  "source_workflow": {
+    "name": "TEST - Agente SQL Financeiro DuckLake - v2.2.31",
+    "source_file": "TEST - Agente SQL Financeiro DuckLake - v2.2.31 (3).json",
+    "source_sha256": "8a017d1b0ffcb8679b7ee0e80d590ce825d3c40a38e9ddcad27f87c8295b7193",
+    "node_count": 76,
+    "active_in_source_export": true
+  },
+  "repository_export": {
+    "file": "workflows/n8n/agente-sql-financeiro-ducklake/TEST - Agente SQL Financeiro DuckLake - v2.2.31.sanitized.json",
+    "sha256": "e2007c4715847d2c2328530521190ab89a3bb47c19b6f7bc656679589bae6cd0",
+    "active": false,
+    "credential_ids_removed": true,
+    "literal_secrets_removed": true,
+    "environment_identifiers_replaced": true
+  },
+  "workflow_audit": {
+    "temporary_generated_sql_test_hook_absent": true,
+    "temporary_preflight_test_hook_absent": true,
+    "question_error_response_version": "v2.2.44-question-error-classification-safe",
+    "sql_error_response_version": "v2.2.43-sql-error-traceability",
+    "received_sql_error_response_version": "v2.2.46-received-sql-error-traceability",
+    "error_log_persistence_version": "v2.2.45-error-log-persistence",
+    "offline_validator_version": "v2.2.34-clean-validation-preflight-payload-safe",
+    "preflight_payload_version": "v2.2.37-preflight-flow-schema-sql-query-no-limit-paired-state",
+    "error_paths_connected_to_shared_log": [
+      "Code - Resposta Erro Pergunta",
+      "Code - Resposta Erro SQL DuckLake",
+      "Code - Resposta Erro SQL Recebida"
+    ],
+    "shared_log_nodes": [
+      "Code - Montar SQL Log Erro DuckLake",
+      "Postgres - Gravar Log Erro DuckLake"
+    ]
+  },
+  "test_evidence": {
+    "question_error_traceability": {
+      "cases": 5,
+      "approved": 5,
+      "rejected": 0,
+      "status": "approved"
+    },
+    "received_sql_error_traceability_and_logs": {
+      "cases": 9,
+      "status": "approved"
+    },
+    "generated_sql_validation_error_and_log": {
+      "terminal_error_code": "SQL_REPAIR_ATTEMPTS_EXHAUSTED",
+      "root_cause_error_code": "TEST_FORCED_SQL_VALIDATION_ERROR",
+      "log_id": 1784,
+      "status": "approved"
+    },
+    "engine_preflight_error_and_log": {
+      "terminal_error_code": "SQL_ENGINE_PREFLIGHT_FAILED",
+      "unknown_column_preserved": true,
+      "log_id": 1788,
+      "status": "approved"
+    },
+    "full_benchmark_regression": {
+      "run_id": "b08e31a7-5121-4324-9bdd-ef68c898a99a",
+      "agent_version": "v2.2.31-benchmark-historico-cliente",
+      "total": 63,
+      "approved": 63,
+      "rejected": 0,
+      "approval_percent": 100.0,
+      "executed_at_utc": "2026-07-21T21:52:16.284Z"
+    }
+  },
+  "scope": {
+    "test_changed": true,
+    "benchmark_used_for_regression": true,
+    "prod_changed": false,
+    "database_schema_changed_in_this_phase": false
+  },
+  "security": {
+    "embedded_secrets_detected_in_source_export": [
+      "Gemini API key",
+      "IBM Watson Orchestrate API key"
+    ],
+    "source_export_must_not_be_committed": true,
+    "rotate_embedded_keys_before_next_production_promotion": true
+  }
+}
