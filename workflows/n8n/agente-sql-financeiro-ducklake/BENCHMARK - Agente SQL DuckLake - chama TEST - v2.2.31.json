@@ -1,0 +1,367 @@
+{
+  "name": "BENCHMARK - Agente SQL DuckLake - chama TEST - v2.2.31",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "e757ebdc-4660-4e58-9cf2-fdf850ba125d",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        352,
+        864
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    b.id AS benchmark_id,\n    b.id,\n    b.pergunta,\n    b.categoria,\n    b.intent_esperada,\n    b.tabelas_obrigatorias,\n    b.filtros_obrigatorios,\n    b.deve_conter_sql,\n    b.nao_deve_conter_sql,\n    b.criterio_semantico,\n    b.prioridade,\n    b.agent_version,\n    b.ativo,\n    jsonb_build_object(\n        'pergunta', b.pergunta,\n        'options', jsonb_build_object(\n            'use_cache', false,\n            'max_repair_attempts', 2,\n            'shadow_mode', false,\n            'benchmark_mode', true,\n            'benchmark_id', b.id,\n            'benchmark_agent_version', b.agent_version,\n            'benchmark_target', 'TEST'\n        )\n    ) AS body\nFROM public.ai_ducklake_benchmarks b\nWHERE b.ativo = TRUE\n  AND b.agent_version = 'v2.2.31-benchmark-historico-cliente'\nORDER BY b.prioridade ASC, b.id ASC;",
+        "options": {}
+      },
+      "id": "3bef48a2-c46b-4818-8309-fde513ff0e48",
+      "name": "Postgres - Buscar Benchmarks DuckLake",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        576,
+        864
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "FTBsfs2auNqDBwRT",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function uuidv4() {\n  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {\n    const r = Math.random() * 16 | 0;\n    const v = c === 'x' ? r : (r & 0x3 | 0x8);\n    return v.toString(16);\n  });\n}\n\nconst runId = uuidv4();\n\nreturn $input.all().map(item => ({\n  json: {\n    ...item.json,\n    run_id: runId\n  }\n}));"
+      },
+      "id": "994c98bf-6396-439c-8dc9-b93b59ca5a79",
+      "name": "Code - Gerar Run ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        864
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ============================================================\n// CODE - AVALIAR BENCHMARK DUCKLAKE v2.2.31\n// Modo: Run Once for Each Item\n//\n// Objetivo:\n// Avaliar a resposta SQL do agente contra a tabela\n// public.ai_ducklake_benchmarks.\n//\n// Regras principais desta versão:\n// - Sem LIMIT SQL por padrão.\n// - LIMIT só é aceito quando a pergunta pede número explícito\n//   como \"top 5\", \"10 maiores\", \"5 menores\" etc.\n// - \"maiores\", \"menores\", \"principal\", \"melhor\" e \"pior\"\n//   sem número explícito exigem ranking/ORDER BY, mas não LIMIT.\n// - Grava SEMPRE a agent_version do benchmark, não a versão interna\n//   retornada pelo agente.\n// - Aceita dev_lakehouse.main_gold, prod_lakehouse.main_gold,\n//   {{ducklake_alias}}.main_gold e main_gold como aliases operacionais.\n// - Mantém compatibilidade com o modelo 4 simplificado, sem exigir\n//   tabelas de rateio quando a pergunta não pedir consolidação/rateio.\n// ============================================================\n\nconst resposta = $json || {};\n\nlet benchmark = {};\ntry {\n  benchmark = $('Loop Over Items').first().json || {};\n} catch (e) {\n  benchmark = {};\n}\n\nconst BENCHMARK_AGENT_VERSION =\n  benchmark.agent_version ||\n  'v2.2.31-benchmark-historico-cliente';\n\n// ============================================================\n// Helpers\n// ============================================================\n\nfunction toArray(value) {\n  if (!value) return [];\n  if (Array.isArray(value)) return value;\n\n  if (typeof value === 'string') {\n    try {\n      const parsed = JSON.parse(value);\n      return Array.isArray(parsed) ? parsed : [];\n    } catch (e) {\n      return [];\n    }\n  }\n\n  return [];\n}\n\nfunction normalizeText(value) {\n  return String(value || '')\n    .toLowerCase()\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nfunction safeJson(value) {\n  if (value === undefined) return null;\n  return value;\n}\n\nfunction hasAny(text, terms) {\n  return terms.some(term => text.includes(normalizeText(term)));\n}\n\nfunction perguntaPedeLimiteExplicito(perguntaRaw) {\n  const p = normalizeText(perguntaRaw);\n\n  return (\n    /\\btop\\s*\\d+\\b/.test(p) ||\n    /\\b(primeiros|primeiras|ultimos|ultimas)\\s+\\d+\\b/.test(p) ||\n    /\\b\\d+\\s+(maiores|menores|principais|melhores|piores|primeiros|primeiras|ultimos|ultimas)\\b/.test(p) ||\n    /\\b(traga|liste|mostrar|mostre|retorne)\\s+\\d+\\b/.test(p)\n  );\n}\n\nfunction sqlContemLimit(sqlRaw) {\n  return /\\blimit\\s+\\d+\\b/i.test(String(sqlRaw || ''));\n}\n\nfunction perguntaPedeRateiosOuConsolidado(perguntaNorm) {\n  return hasAny(perguntaNorm, [\n    'rateio',\n    'rateios',\n    'consolidado',\n    'consolidada',\n    'consolidado com rateios',\n    'incluindo rateios',\n    'com rateios',\n    'visao total',\n    'visão total',\n    'total com rateios'\n  ]);\n}\n\nfunction sqlPareceModelo4Simplificado(sqlNorm) {\n  if (!sqlNorm) return false;\n\n  const temCentroCusto =\n    sqlNorm.includes('centro_custo') ||\n    sqlNorm.includes('nome_centro_custo');\n\n  const temOpexRealizado =\n    sqlNorm.includes('opex_realizado') ||\n    sqlNorm.includes('opex_realizado_rs') ||\n    sqlNorm.includes('valor_realizado');\n\n  const temOpexOrcado =\n    sqlNorm.includes('opex_orcado') ||\n    sqlNorm.includes('opex_orcado_rs') ||\n    sqlNorm.includes('valor_orcado');\n\n  const temVariancia =\n    sqlNorm.includes('variancia') ||\n    sqlNorm.includes('variancia_rs');\n\n  const temOrcamento =\n    sqlNorm.includes('gold_orcamento');\n\n  const temOpex =\n    sqlNorm.includes(\"like '09 -%'\") &&\n    sqlNorm.includes(\"like '10 -%'\") &&\n    sqlNorm.includes(\"like '12 -%'\");\n\n  return (\n    temCentroCusto &&\n    temOpexRealizado &&\n    temOpexOrcado &&\n    temVariancia &&\n    temOrcamento &&\n    temOpex\n  );\n}\n\nfunction perguntaPareceModelo4Simplificado(perguntaNorm, intentEsperada, intentDetectada, sqlNorm) {\n  const falaCentroCusto = hasAny(perguntaNorm, [\n    'centro de custo',\n    'centros de custo',\n    'setor',\n    'setores',\n    'area',\n    'departamento',\n    'cc'\n  ]);\n\n  const falaOrcamentoOuOpex = hasAny(perguntaNorm, [\n    'orcamento',\n    'orçamento',\n    'orcado',\n    'orçado',\n    'budget',\n    'economia',\n    'abaixo do orcamento',\n    'acima do orcamento',\n    'consumiram menos',\n    'consumo',\n    'consumido',\n    'opex',\n    'desempenho',\n    'melhor desempenho',\n    'pior desempenho'\n  ]);\n\n  const intentModelo4 =\n    intentEsperada === 'opex_por_centro_custo' ||\n    intentDetectada === 'opex_por_centro_custo';\n\n  return (\n    (intentModelo4 || (falaCentroCusto && falaOrcamentoOuOpex) || sqlPareceModelo4Simplificado(sqlNorm)) &&\n    !perguntaPedeRateiosOuConsolidado(perguntaNorm)\n  );\n}\n\nfunction containsPercentualAlias(sqlNorm) {\n  return (\n    sqlNorm.includes('percentual') ||\n    sqlNorm.includes('perc_') ||\n    sqlNorm.includes('_perc') ||\n    sqlNorm.includes('resultado_perc_rol') ||\n    sqlNorm.includes('perc_representatividade') ||\n    sqlNorm.includes('perc_orcado_consumido') ||\n    sqlNorm.includes('cmv_perc_rol') ||\n    sqlNorm.includes('lucro_bruto_perc_rol') ||\n    sqlNorm.includes('opex_perc_rol') ||\n    sqlNorm.includes('margem_contribuicao_perc_rol') ||\n    sqlNorm.includes('resultado_liquido_perc_rol') ||\n    sqlNorm.includes('resultado_percentual_rol') ||\n    sqlNorm.includes('representatividade') ||\n    sqlNorm.includes('/ nullif') ||\n    sqlNorm.includes('/nullif') ||\n    sqlNorm.includes(' / ')\n  );\n}\n\nfunction containsPercentualConsumidoAlias(sqlNorm) {\n  return (\n    sqlNorm.includes('percentual_consumido') ||\n    sqlNorm.includes('perc_orcado_consumido') ||\n    sqlNorm.includes('consumo') ||\n    sqlNorm.includes('consumido') ||\n    sqlNorm.includes('/ nullif') ||\n    sqlNorm.includes('/nullif') ||\n    sqlNorm.includes(' / ')\n  );\n}\n\nfunction containsLakehouseAlias(sqlNorm) {\n  return (\n    sqlNorm.includes('dev_lakehouse.main_gold') ||\n    sqlNorm.includes('prod_lakehouse.main_gold') ||\n    sqlNorm.includes('{{ducklake_alias}}.main_gold') ||\n    sqlNorm.includes('main_gold')\n  );\n}\n\nfunction containsTerm(sqlNorm, term) {\n  const termo = normalizeText(term);\n  if (!termo) return true;\n\n  if (\n    termo === 'percentual' ||\n    termo === 'percentuais' ||\n    termo === 'percentual sobre rol' ||\n    termo === '% sobre rol'\n  ) {\n    return containsPercentualAlias(sqlNorm);\n  }\n\n  if (\n    termo === 'percentual_consumido' ||\n    termo === 'percentual consumido' ||\n    termo === 'percentual de orcamento consumido' ||\n    termo === 'percentual de orçamento consumido'\n  ) {\n    return containsPercentualConsumidoAlias(sqlNorm);\n  }\n\n  if (termo === 'exclusao de unidades corporativas 97, 98 e 99') {\n    return (\n      sqlNorm.includes(\"not in ('97', '98', '99')\") ||\n      sqlNorm.includes(\"not in('97','98','99')\") ||\n      sqlNorm.includes(\"'97', '98', '99'\") ||\n      sqlNorm.includes(\"'97','98','99'\")\n    );\n  }\n\n  if (termo === \"nk_base = 'imd'\") {\n    return (\n      sqlNorm.includes(\"nk_base = 'imd'\") ||\n      sqlNorm.includes('nk_base = \"imd\"')\n    );\n  }\n\n  if (termo === \"pc.tipo_plano = 'dre'\") {\n    return (\n      sqlNorm.includes(\"tipo_plano = 'dre'\") ||\n      sqlNorm.includes('tipo_plano = \"dre\"')\n    );\n  }\n\n  if (termo === \"cc.tipo_centro_custo = 'gerencial'\") {\n    return (\n      sqlNorm.includes(\"tipo_centro_custo = 'gerencial'\") ||\n      sqlNorm.includes('tipo_centro_custo = \"gerencial\"')\n    );\n  }\n\n  if (termo.includes('opex pelos grupos dre 09')) {\n    return (\n      sqlNorm.includes(\"like '09 -%'\") &&\n      sqlNorm.includes(\"like '10 -%'\") &&\n      sqlNorm.includes(\"like '12 -%'\")\n    );\n  }\n\n  if (termo.includes('rol pelos grupos dre 01')) {\n    return (\n      sqlNorm.includes(\"like '01 -%'\") &&\n      sqlNorm.includes(\"like '02 -%'\") &&\n      sqlNorm.includes(\"like '03 -%'\")\n    );\n  }\n\n  if (\n    termo === 'dev_lakehouse.main_gold' ||\n    termo === '{{ducklake_alias}}.main_gold' ||\n    termo === 'ducklake_alias' ||\n    termo === 'main_gold'\n  ) {\n    return containsLakehouseAlias(sqlNorm);\n  }\n\n  if (termo === 'order by') {\n    return sqlNorm.includes('order by');\n  }\n\n  if (termo === 'limit') {\n    return sqlContemLimit(sqlNorm);\n  }\n\n  return sqlNorm.includes(termo);\n}\n\nfunction shouldIgnoreRequiredTable(tabelaNorm, perguntaNorm, intentEsperada, intentDetectada, sqlNorm) {\n  const modelo4Simplificado = perguntaPareceModelo4Simplificado(\n    perguntaNorm,\n    intentEsperada,\n    intentDetectada,\n    sqlNorm\n  );\n\n  if (!modelo4Simplificado) return false;\n\n  return (\n    tabelaNorm === 'gold_rateios_lancamentos_contabeis' ||\n    tabelaNorm === 'gold_rateios_orcamentos'\n  );\n}\n\nfunction shouldIgnoreRequiredSqlTerm(termoNorm, perguntaNorm, intentEsperada, intentDetectada, sqlNorm) {\n  const modelo4Simplificado = perguntaPareceModelo4Simplificado(\n    perguntaNorm,\n    intentEsperada,\n    intentDetectada,\n    sqlNorm\n  );\n\n  if (!modelo4Simplificado) return false;\n\n  return (\n    termoNorm === 'gold_rateios_lancamentos_contabeis' ||\n    termoNorm === 'gold_rateios_orcamentos'\n  );\n}\n\n// ============================================================\n// Campos do benchmark\n// ============================================================\n\nconst benchmarkId = benchmark.id || benchmark.benchmark_id || null;\nconst pergunta = benchmark.pergunta || resposta.pergunta || '';\nconst perguntaNorm = normalizeText(pergunta);\nconst intentEsperada = benchmark.intent_esperada || '';\nconst categoria = benchmark.categoria || null;\n\nconst tabelasObrigatorias = toArray(benchmark.tabelas_obrigatorias);\nconst filtrosObrigatorios = toArray(benchmark.filtros_obrigatorios);\nconst deveConterSql = toArray(benchmark.deve_conter_sql);\nconst naoDeveConterSql = toArray(benchmark.nao_deve_conter_sql);\n\n// ============================================================\n// Campos da resposta do agente\n// ============================================================\n\nconst intentDetectada =\n  resposta.intencao ||\n  resposta.detected_intent ||\n  resposta.intent_detectada ||\n  resposta.intent ||\n  resposta.intencao_detectada ||\n  resposta.entrega_watson?.detected_intent ||\n  resposta.entrega_watson?.intent ||\n  null;\n\nconst sql =\n  resposta.sql ||\n  resposta.sql_query ||\n  resposta.query ||\n  resposta.query_executada_watson ||\n  resposta.query_para_copiar ||\n  resposta.entrega_watson?.query_para_copiar ||\n  resposta.entrega_watson?.sql ||\n  resposta.entrega_watson?.sql_query ||\n  null;\n\nconst sqlNorm = normalizeText(sql);\n\nconst validationStatus =\n  resposta.validacao_offline?.status ||\n  resposta.validation_status ||\n  resposta.status_validacao ||\n  'nao_informado';\n\nconst validationErrors =\n  resposta.validacao_offline?.errors ||\n  resposta.validation_errors ||\n  [];\n\nconst validationWarnings =\n  resposta.validacao_offline?.warnings ||\n  resposta.validation_warnings ||\n  [];\n\nconst tabelasUsadas =\n  resposta.tabelas_usadas ||\n  resposta.tables_used ||\n  [];\n\nconst filtrosAplicados =\n  resposta.filtros_aplicados ||\n  [];\n\nconst erros = [];\nconst avisos = [];\n\n// ============================================================\n// 1. Resposta do agente\n// ============================================================\n\nif (!resposta || typeof resposta !== 'object') {\n  erros.push('Resposta do agente ausente ou inválida.');\n}\n\nif (resposta.success === false) {\n  erros.push(\n    resposta.detalhe ||\n    resposta.resposta ||\n    resposta.message ||\n    resposta.error_message ||\n    'Agente retornou success=false.'\n  );\n}\n\nif (!intentDetectada) {\n  erros.push('Resposta do agente não contém intenção detectada.');\n} else if (intentEsperada && intentDetectada !== intentEsperada) {\n  erros.push(`Intenção incorreta. Esperado: ${intentEsperada}. Detectado: ${intentDetectada}.`);\n}\n\nif (!sql || !String(sql).trim()) {\n  erros.push('Resposta do agente não contém SQL gerado.');\n}\n\n// ============================================================\n// 2. Regra global v2.2.31: sem LIMIT SQL padrão\n// ============================================================\n\nif (sql) {\n  const temLimit = sqlContemLimit(sql);\n  const pedeLimitExplicito = perguntaPedeLimiteExplicito(pergunta);\n\n  if (temLimit && !pedeLimitExplicito) {\n    erros.push('SQL contém LIMIT sem número explícito solicitado pelo usuário. Regra v2.2.31: sem LIMIT SQL padrão.');\n  }\n\n  if (!temLimit && pedeLimitExplicito) {\n    avisos.push('Pergunta parece pedir quantidade explícita, mas a SQL não contém LIMIT. Verificar se o ranking sem LIMIT é aceitável para este caso.');\n  }\n}\n\n// ============================================================\n// 3. Validação SQL contra critérios do benchmark\n// ============================================================\n\nif (sql) {\n  for (const tabela of tabelasObrigatorias) {\n    const tabelaNorm = normalizeText(tabela);\n\n    if (shouldIgnoreRequiredTable(tabelaNorm, perguntaNorm, intentEsperada, intentDetectada, sqlNorm)) {\n      avisos.push(`Tabela obrigatória ignorada por Modelo 4 simplificado: ${tabela}`);\n      continue;\n    }\n\n    if (!sqlNorm.includes(tabelaNorm)) {\n      erros.push(`SQL não contém tabela obrigatória: ${tabela}`);\n    }\n  }\n\n  for (const filtro of filtrosObrigatorios) {\n    if (!containsTerm(sqlNorm, filtro)) {\n      erros.push(`Filtro obrigatório não encontrado: ${filtro}`);\n    }\n  }\n\n  for (const termo of deveConterSql) {\n    const termoNorm = normalizeText(termo);\n\n    if (shouldIgnoreRequiredSqlTerm(termoNorm, perguntaNorm, intentEsperada, intentDetectada, sqlNorm)) {\n      avisos.push(`Termo obrigatório ignorado por Modelo 4 simplificado: ${termo}`);\n      continue;\n    }\n\n    if (!containsTerm(sqlNorm, termo)) {\n      erros.push(`SQL não contém termo obrigatório: ${termo}`);\n    }\n  }\n\n  for (const termo of naoDeveConterSql) {\n    const termoNorm = normalizeText(termo);\n    if (!termoNorm) continue;\n\n    // LIMIT já é tratado pela regra global v2.2.31.\n    // Aqui não duplicamos o erro.\n    if (termoNorm === 'limit') {\n      continue;\n    }\n\n    if (sqlNorm.includes(termoNorm)) {\n      erros.push(`SQL contém termo proibido: ${termo}`);\n    }\n  }\n}\n\n// ============================================================\n// 4. Validação offline do próprio agente\n// ============================================================\n\nif (validationStatus === 'reprovado') {\n  erros.push('Validação offline retornou status reprovado.');\n}\n\nif (Array.isArray(validationErrors) && validationErrors.length > 0) {\n  erros.push(`Validação offline retornou erros: ${JSON.stringify(validationErrors)}`);\n}\n\nif (Array.isArray(validationWarnings) && validationWarnings.length > 0) {\n  avisos.push(...validationWarnings);\n}\n\n// ============================================================\n// 5. Limpeza de avisos conhecidos\n// ============================================================\n\nconst avisosFiltrados = avisos.filter(aviso => {\n  const avisoNorm = normalizeText(aviso);\n\n  if (\n    perguntaPareceModelo4Simplificado(perguntaNorm, intentEsperada, intentDetectada, sqlNorm) &&\n    (\n      avisoNorm.includes('tabela obrigatoria ignorada por modelo 4 simplificado') ||\n      avisoNorm.includes('termo obrigatorio ignorado por modelo 4 simplificado')\n    )\n  ) {\n    return false;\n  }\n\n  return true;\n});\n\n// ============================================================\n// 6. Resultado final\n// ============================================================\n\nconst passou = erros.length === 0;\n\nconst statusTeste = passou\n  ? (avisosFiltrados.length > 0 ? 'aprovado_com_ressalva' : 'aprovado')\n  : 'reprovado';\n\nconst motivo = passou\n  ? (avisosFiltrados.length > 0 ? avisosFiltrados.join(' | ') : 'Benchmark aprovado.')\n  : erros.join(' | ');\n\nreturn {\n  json: {\n    run_id: benchmark.run_id || null,\n\n    benchmark_id: benchmarkId,\n    pergunta,\n    categoria,\n\n    intent_esperada: intentEsperada,\n    intent_detectada: intentDetectada,\n\n    success: resposta.success === true,\n    validation_status: validationStatus,\n    validation_errors: safeJson(validationErrors),\n    validation_warnings: safeJson(validationWarnings),\n\n    sql_gerado: sql,\n    tabelas_usadas: safeJson(tabelasUsadas),\n    filtros_aplicados: safeJson(filtrosAplicados),\n\n    passou,\n    status_teste: statusTeste,\n    motivo,\n\n    // IMPORTANTE:\n    // Gravar a versão do benchmark, não a versão interna retornada pelo agente.\n    agent_version: BENCHMARK_AGENT_VERSION,\n\n    resposta_completa: safeJson(resposta)\n  }\n};"
+      },
+      "id": "52001057-2bff-4b05-afe6-9d73df810a71",
+      "name": "Code - Avaliar Benchmark DuckLake",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        864
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// CODE - MONTAR SQL INSERT BENCHMARK DUCKLAKE\n// Modo: Run Once for All Items\n// Objetivo: gerar 1 INSERT para cada item avaliado\n// ============================================================\n\nfunction sqlEscape(value) {\n  if (value === null || value === undefined) return 'NULL';\n  return \"'\" + String(value).replace(/'/g, \"''\") + \"'\";\n}\n\nfunction sqlJson(value) {\n  if (value === null || value === undefined) return \"'null'::jsonb\";\n  return sqlEscape(JSON.stringify(value)) + \"::jsonb\";\n}\n\nconst items = $input.all();\n\nreturn items.map(item => {\n  const j = item.json;\n\n  const query = `\nINSERT INTO public.ai_ducklake_benchmark_runs (\n  run_id,\n  benchmark_id,\n  pergunta,\n  categoria,\n  intent_esperada,\n  intent_detectada,\n  success,\n  validation_status,\n  validation_errors,\n  validation_warnings,\n  sql_gerado,\n  tabelas_usadas,\n  filtros_aplicados,\n  passou,\n  status_teste,\n  motivo,\n  agent_version,\n  resposta_completa\n)\nVALUES (\n  ${sqlEscape(j.run_id)}::uuid,\n  ${j.benchmark_id ?? 'NULL'},\n  ${sqlEscape(j.pergunta)},\n  ${sqlEscape(j.categoria)},\n  ${sqlEscape(j.intent_esperada)},\n  ${sqlEscape(j.intent_detectada)},\n  ${j.success ? 'TRUE' : 'FALSE'},\n  ${sqlEscape(j.validation_status)},\n  ${sqlJson(j.validation_errors)},\n  ${sqlJson(j.validation_warnings)},\n  ${sqlEscape(j.sql_gerado)},\n  ${sqlJson(j.tabelas_usadas)},\n  ${sqlJson(j.filtros_aplicados)},\n  ${j.passou ? 'TRUE' : 'FALSE'},\n  ${sqlEscape(j.status_teste)},\n  ${sqlEscape(j.motivo)},\n  ${sqlEscape(j.agent_version)},\n  ${sqlJson(j.resposta_completa)}\n)\nRETURNING id, run_id, benchmark_id, passou, status_teste;\n`;\n\n  return {\n    json: {\n      query\n    }\n  };\n});"
+      },
+      "id": "c3329964-5191-4f30-a5f6-629ad36da1e0",
+      "name": "Code - Montar SQL Insert Benchmark DuckLake",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2144,
+        864
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "{{ $json.query }}",
+        "options": {}
+      },
+      "id": "0446a55b-c087-4500-a2ef-8888a2108a76",
+      "name": "Postgres - Gravar Resultado Benchmark DuckLake",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2368,
+        944
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "FTBsfs2auNqDBwRT",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// CODE - PREPARAR RESUMO BENCHMARK DUCKLAKE\n// ============================================================\n\nlet runId = null;\n\ntry {\n  runId = $('Code - Gerar Run ID').first().json.run_id;\n} catch (e) {\n  runId = $input.first()?.json?.run_id || null;\n}\n\nif (!runId) {\n  throw new Error('run_id não encontrado para gerar resumo.');\n}\n\nreturn [\n  {\n    json: {\n      run_id: runId\n    }\n  }\n];"
+      },
+      "id": "522088d5-9181-4e83-b51a-230e6fab855d",
+      "name": "Code - Preparar Resumo Benchmark DuckLake",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  run_id,\n  agent_version,\n  COUNT(*) AS total_testes,\n  COUNT(*) FILTER (WHERE passou = TRUE) AS aprovados,\n  COUNT(*) FILTER (WHERE passou = FALSE) AS reprovados,\n  COUNT(*) FILTER (WHERE status_teste = 'aprovado') AS aprovados_sem_ressalva,\n  COUNT(*) FILTER (WHERE status_teste = 'aprovado_com_ressalva') AS aprovados_com_ressalva,\n  ROUND(\n    (COUNT(*) FILTER (WHERE passou = TRUE)::numeric / NULLIF(COUNT(*), 0)) * 100,\n    2\n  ) AS percentual_aprovacao,\n  MAX(criado_em) AS executado_em\nFROM public.ai_ducklake_benchmark_runs\nWHERE run_id = '{{ $json.run_id }}'::uuid\nGROUP BY run_id, agent_version\nORDER BY executado_em DESC;",
+        "options": {}
+      },
+      "id": "805c8f65-8ab5-4ca9-a5bd-02af1c84c381",
+      "name": "Postgres - Resumo Benchmark DuckLake",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1472,
+        672
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "FTBsfs2auNqDBwRT",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1024,
+        864
+      ],
+      "id": "a6b52e70-21d6-4576-a6c7-31882957611f",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1248,
+        864
+      ],
+      "id": "e0401ffb-0dba-4a01-b158-6a5df09a4deb",
+      "name": "Wait",
+      "webhookId": "d8c6052b-e7ce-448e-bc91-62da4814bdc2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// CODE - NORMALIZAR RESPOSTA AGENTE\n// v2.2.32-benchmark-response-normalizer-raw-response-safe\n// Modo: Run Once for Each Item\n//\n// Objetivo:\n// - Receber resposta do HTTP em texto, JSON ou fullResponse.\n// - Parsear body/data/response/text/raw_response quando vierem como string JSON.\n// - Extrair SQL de múltiplos caminhos compatíveis.\n// - Entregar ao avaliador campos top-level consistentes.\n// - Evitar falso negativo quando a resposta veio válida dentro de raw_response.\n// - Não usar hardcode de cliente, benchmark, marca ou pergunta.\n// ============================================================\n\nconst input = $json || {};\n\n// ============================================================\n// Helpers\n// ============================================================\n\nfunction isObject(value) {\n  return value !== null && typeof value === 'object' && !Array.isArray(value);\n}\n\nfunction stringifySafe(value) {\n  if (value === null || value === undefined) return null;\n\n  if (typeof value === 'string') return value;\n\n  try {\n    return JSON.stringify(value);\n  } catch (e) {\n    return String(value);\n  }\n}\n\nfunction tryParseJson(value) {\n  if (value === null || value === undefined) {\n    return null;\n  }\n\n  if (isObject(value)) {\n    return value;\n  }\n\n  if (typeof value !== 'string') {\n    return null;\n  }\n\n  const text = value.trim();\n\n  if (!text) {\n    return null;\n  }\n\n  try {\n    return JSON.parse(text);\n  } catch (e) {\n    return null;\n  }\n}\n\nfunction firstNonEmpty(...values) {\n  for (const value of values) {\n    if (value === null || value === undefined) continue;\n\n    const text = String(value).trim();\n\n    if (text) return value;\n  }\n\n  return null;\n}\n\nfunction looksLikeAgentResponse(value) {\n  if (!isObject(value)) return false;\n\n  return Boolean(\n    value.success !== undefined ||\n    value.sql ||\n    value.sql_gerado ||\n    value.cleaned_sql ||\n    value.sql_query ||\n    value.query ||\n    value.query_para_copiar ||\n    value.query_executada_watson ||\n    value.entrega_watson ||\n    value.validacao_offline ||\n    value.intencao ||\n    value.intent ||\n    value.detected_intent ||\n    value.intent_detectada ||\n    value.intencao_detectada\n  );\n}\n\nfunction parseNestedResponse(value, maxDepth = 5) {\n  let current = value;\n\n  for (let depth = 0; depth < maxDepth; depth++) {\n    const parsed = tryParseJson(current);\n\n    if (parsed && parsed !== current) {\n      current = parsed;\n      continue;\n    }\n\n    if (!isObject(current)) {\n      return current;\n    }\n\n    // Caso o HTTP fullResponse tenha encapsulado a resposta real\n    // dentro de algum campo textual.\n    const nestedCandidates = [\n      current.body,\n      current.data,\n      current.response,\n      current.text,\n      current.raw_response,\n      current.rawResponse,\n      current.result,\n      current.output\n    ];\n\n    let advanced = false;\n\n    for (const candidate of nestedCandidates) {\n      if (candidate === null || candidate === undefined) continue;\n\n      const nestedParsed = tryParseJson(candidate);\n\n      if (looksLikeAgentResponse(nestedParsed)) {\n        current = {\n          ...current,\n          ...nestedParsed,\n          _normalizer_nested_source: 'nested_json_field'\n        };\n        advanced = true;\n        break;\n      }\n    }\n\n    if (!advanced) {\n      return current;\n    }\n  }\n\n  return current;\n}\n\nfunction extractSql(response) {\n  if (!isObject(response)) return null;\n\n  return firstNonEmpty(\n    response.sql_gerado,\n    response.sql,\n    response.cleaned_sql,\n    response.sql_query,\n    response.query,\n    response.query_executada_watson,\n    response.query_para_copiar,\n\n    response.entrega_watson?.query_para_copiar,\n    response.entrega_watson?.sql,\n    response.entrega_watson?.sql_query,\n\n    response.entrega?.query_para_copiar,\n    response.entrega?.sql,\n    response.entrega?.sql_query,\n\n    response.resultado?.sql_gerado,\n    response.resultado?.sql,\n    response.resultado?.cleaned_sql,\n    response.resultado?.sql_query,\n    response.resultado?.query_para_copiar,\n    response.resultado?.query_executada_watson,\n    response.resultado?.entrega_watson?.query_para_copiar,\n\n    response.data?.sql_gerado,\n    response.data?.sql,\n    response.data?.query_para_copiar,\n    response.data?.entrega_watson?.query_para_copiar,\n\n    response.body?.sql_gerado,\n    response.body?.sql,\n    response.body?.query_para_copiar,\n    response.body?.entrega_watson?.query_para_copiar\n  );\n}\n\nfunction extractIntent(response) {\n  if (!isObject(response)) return null;\n\n  return firstNonEmpty(\n    response.intencao,\n    response.detected_intent,\n    response.intent_detectada,\n    response.intent,\n    response.intencao_detectada,\n\n    response.entrega_watson?.intencao_detectada,\n    response.entrega_watson?.detected_intent,\n    response.entrega_watson?.intent,\n    response.entrega_watson?.intencao,\n\n    response.resultado?.intencao,\n    response.resultado?.detected_intent,\n    response.resultado?.intent_detectada,\n    response.resultado?.intent,\n    response.resultado?.intencao_detectada\n  );\n}\n\n// ============================================================\n// Metadados HTTP\n// ============================================================\n\nconst statusCode =\n  input.statusCode ||\n  input.status ||\n  input.code ||\n  input.http_status_code ||\n  null;\n\nconst headers =\n  input.headers ||\n  input.responseHeaders ||\n  input.http_headers ||\n  null;\n\n// ============================================================\n// Seleção do payload bruto\n// ============================================================\n\nconst rawCandidates = [\n  input.body,\n  input.data,\n  input.response,\n  input.text,\n  input.raw_response,\n  input.rawResponse,\n  input.result,\n  input.output,\n  input\n];\n\nlet parsed = null;\nlet rawSelected = null;\n\nfor (const candidate of rawCandidates) {\n  if (candidate === null || candidate === undefined) continue;\n\n  const candidateParsed = parseNestedResponse(candidate);\n\n  if (looksLikeAgentResponse(candidateParsed)) {\n    parsed = candidateParsed;\n    rawSelected = candidate;\n    break;\n  }\n}\n\n// Fallback: tenta interpretar o objeto inteiro.\nif (!parsed || !isObject(parsed)) {\n  const fallbackParsed = parseNestedResponse(input);\n\n  if (looksLikeAgentResponse(fallbackParsed)) {\n    parsed = fallbackParsed;\n    rawSelected = input;\n  }\n}\n\n// ============================================================\n// Resposta inválida controlada\n// ============================================================\n\nif (!parsed || !isObject(parsed)) {\n  return {\n    json: {\n      success: false,\n      error_message: 'Resposta do webhook não é JSON válido.',\n      detalhe: 'O HTTP Request recebeu resposta em texto ou formato inesperado.',\n      http_status_code: statusCode,\n      http_headers: headers,\n      raw_response: stringifySafe(rawSelected ?? input),\n      agent_version: 'v2.2.31-benchmark-historico-cliente',\n      normalizer_version: 'v2.2.32-benchmark-response-normalizer-raw-response-safe'\n    }\n  };\n}\n\n// ============================================================\n// Normalização de campos principais\n// ============================================================\n\nconst sqlFinal = extractSql(parsed);\nconst intentFinal = extractIntent(parsed);\n\nconst rawResponse =\n  typeof input.raw_response === 'string'\n    ? input.raw_response\n    : typeof rawSelected === 'string'\n      ? rawSelected\n      : stringifySafe(rawSelected ?? input);\n\n// Mantém entrega_watson, mas garante query_para_copiar quando SQL existir.\nconst entregaWatsonNormalizada = isObject(parsed.entrega_watson)\n  ? {\n      ...parsed.entrega_watson,\n      query_para_copiar: parsed.entrega_watson.query_para_copiar || sqlFinal || null\n    }\n  : sqlFinal\n    ? {\n        query_para_copiar: sqlFinal\n      }\n    : parsed.entrega_watson;\n\n// ============================================================\n// Saída normalizada para o avaliador\n// ============================================================\n\nreturn {\n  json: {\n    ...parsed,\n\n    // Compatibilidade para o Code - Avaliar Benchmark DuckLake\n    sql: sqlFinal || parsed.sql || null,\n    sql_gerado: sqlFinal || parsed.sql_gerado || null,\n    query_para_copiar: parsed.query_para_copiar || sqlFinal || null,\n    query_executada_watson: parsed.query_executada_watson || sqlFinal || null,\n\n    intencao:\n      parsed.intencao ||\n      intentFinal ||\n      null,\n\n    intent_detectada:\n      parsed.intent_detectada ||\n      parsed.detected_intent ||\n      parsed.intent ||\n      parsed.intencao_detectada ||\n      intentFinal ||\n      null,\n\n    entrega_watson: entregaWatsonNormalizada,\n\n    http_status_code: statusCode,\n    http_headers: headers,\n    raw_response: rawResponse,\n\n    normalizer_version: 'v2.2.32-benchmark-response-normalizer-raw-response-safe',\n    normalizer_sql_found: Boolean(sqlFinal),\n    normalizer_intent_found: Boolean(intentFinal),\n    normalizer_source: 'http_response_normalized'\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        864
+      ],
+      "id": "ba8ecf31-b290-4f36-8d7f-f2d414506dfc",
+      "name": "Code - Normalizar Resposta Agente"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://n8n.srv1319424.hstgr.cloud/webhook/agente-sql-financeiro-ducklake-test",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "pergunta",
+              "value": "={{ $json.pergunta }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 180000
+        }
+      },
+      "id": "66ed9a67-1e9e-480e-aaad-0bfe631ed499",
+      "name": "HTTP Request - Chamar Agente DuckLake TEST",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1472,
+        864
+      ],
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SVNUz7UvaaNBPaLt",
+          "name": "Header Auth account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Buscar Benchmarks DuckLake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Buscar Benchmarks DuckLake": {
+      "main": [
+        [
+          {
+            "node": "Code - Gerar Run ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Gerar Run ID": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Avaliar Benchmark DuckLake": {
+      "main": [
+        [
+          {
+            "node": "Code - Montar SQL Insert Benchmark DuckLake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Montar SQL Insert Benchmark DuckLake": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Gravar Resultado Benchmark DuckLake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Gravar Resultado Benchmark DuckLake": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Preparar Resumo Benchmark DuckLake": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Resumo Benchmark DuckLake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Code - Preparar Resumo Benchmark DuckLake",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Chamar Agente DuckLake TEST",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalizar Resposta Agente": {
+      "main": [
+        [
+          {
+            "node": "Code - Avaliar Benchmark DuckLake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Chamar Agente DuckLake TEST": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalizar Resposta Agente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "3044387b-f3fb-4b04-8234-c66aedc949d8",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b987b64820c877d8e3f410a39456b5cfef75daed97a383c8e298c384e32e1eb3"
+  },
+  "id": "Oul86_6uQMG2jwYi58Xuf",
+  "tags": []
+}
