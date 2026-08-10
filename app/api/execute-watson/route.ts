@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import {
   createAgentRun,
   getAgentRunById,
@@ -13,6 +13,11 @@ import {
 } from "@/lib/profile-policy";
 import { getRequestMetadata, requireAgentSession } from "@/lib/server-auth";
 import { logger } from "@/lib/server-logger";
+import {
+  buildLangGraphShadowPrincipal,
+  dispatchLangGraphExecuteApprovedShadow,
+  isLangGraphShadowEnabled
+} from "@/lib/langgraph-shadow-client";
 import type { ExecuteWatsonResponse } from "@/lib/types";
 import { normalizeWatsonResult } from "@/lib/watson-result-normalization";
 
@@ -336,7 +341,7 @@ export async function POST(request: Request) {
       });
     }
 
-    return NextResponse.json({
+    const responsePayload = {
       ...normalized,
       ...(agentRunId
         ? {
@@ -344,7 +349,48 @@ export async function POST(request: Request) {
             agent_run_id: agentRunId
           }
         : {})
-    });
+    };
+
+    if (agentRunId && isLangGraphShadowEnabled()) {
+      const principal = buildLangGraphShadowPrincipal(session);
+
+      after(async () => {
+        try {
+          const shadowResult = await dispatchLangGraphExecuteApprovedShadow({
+            agentRunId,
+            approvedSql: sql,
+            principal,
+            requestId,
+          });
+
+          if (shadowResult.status !== "sent" && shadowResult.status !== "disabled") {
+            try {
+              logger.warn("execute_watson.langgraph_shadow_failed", {
+                requestId,
+                agentRunId,
+                status: shadowResult.status,
+                httpStatus: shadowResult.httpStatus,
+                errorName: shadowResult.errorName
+              });
+            } catch {
+              // Preserve the official response path even if post-response logging fails.
+            }
+          }
+        } catch {
+          try {
+            logger.warn("execute_watson.langgraph_shadow_unexpected_error", {
+              requestId,
+              agentRunId,
+              errorName: "UnexpectedShadowError"
+            });
+          } catch {
+            // Preserve the official response path even if post-response logging fails.
+          }
+        }
+      });
+    }
+
+    return NextResponse.json(responsePayload);
   } catch (error) {
     logger.error("execute_watson.request_failed", {
       requestId,

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import {
   createAgentRun,
   findLatestComparableLlmRunForCacheSavings,
@@ -22,6 +22,11 @@ import {
 } from "@/lib/profile-policy";
 import { getRequestMetadata, requireAgentSession } from "@/lib/server-auth";
 import { logger } from "@/lib/server-logger";
+import {
+  buildLangGraphShadowPrincipal,
+  dispatchLangGraphGenerateShadow,
+  isLangGraphShadowEnabled
+} from "@/lib/langgraph-shadow-client";
 import { AGENT_VERSION, type GenerateSqlResponse } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -698,6 +703,46 @@ export async function POST(request: Request) {
       estimated_cost_usd: llmPersistence.estimatedCostUsd,
       estimated_savings_usd: llmPersistence.estimatedSavingsUsd
     };
+
+    if (isLangGraphShadowEnabled()) {
+      const principal = buildLangGraphShadowPrincipal(session);
+
+      after(async () => {
+        try {
+          const shadowResult = await dispatchLangGraphGenerateShadow({
+            agentRunId: agentRun.id,
+            question: pergunta,
+            principal,
+            requestId,
+            agentVersion: AGENT_VERSION
+          });
+
+          if (shadowResult.status !== "sent" && shadowResult.status !== "disabled") {
+            try {
+              logger.warn("generate_sql.langgraph_shadow_failed", {
+                requestId,
+                agentRunId: agentRun.id,
+                status: shadowResult.status,
+                httpStatus: shadowResult.httpStatus,
+                errorName: shadowResult.errorName
+              });
+            } catch {
+              // Preserve the official response path even if post-response logging fails.
+            }
+          }
+        } catch {
+          try {
+            logger.warn("generate_sql.langgraph_shadow_unexpected_error", {
+              requestId,
+              agentRunId: agentRun.id,
+              errorName: "UnexpectedShadowError"
+            });
+          } catch {
+            // Preserve the official response path even if post-response logging fails.
+          }
+        }
+      });
+    }
 
     return NextResponse.json(responsePayload);
   } catch (error) {
