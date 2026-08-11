@@ -14,6 +14,7 @@ import {
   X
 } from "lucide-react";
 import { LlmUsageSummary } from "@/components/LlmUsageSummary";
+import { ShadowRunPanel } from "@/components/ShadowRunPanel";
 
 type AuthenticatedUser = {
   id: string;
@@ -936,6 +937,8 @@ function RunDetails({ run, onCopy }: { run: AgentRun; onCopy: (value: string | n
           </div>
         </div>
       </DetailSection>
+
+      <ShadowRunPanel agentRunId={run.id} />
 
       <DetailSection title="Metadados">
         <div className="grid gap-3 text-sm md:grid-cols-2">

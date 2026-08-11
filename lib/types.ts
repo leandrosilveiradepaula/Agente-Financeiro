@@ -152,3 +152,67 @@ export type ExecutiveReportHistoryItem = {
   execution_time_ms?: number | null;
   generated_at: string;
 };
+
+export type ShadowRunSummary = {
+  shadow_record_id: string;
+  agent_run_id: string;
+  event_type: string;
+  status: string;
+  created_at: string;
+  completed_at: string | null;
+  requires_reapproval: boolean;
+  has_repair?: boolean;
+  has_error?: boolean;
+  warnings?: string[];
+  errors?: string[];
+};
+
+export type ShadowStepMetadata = Partial<{
+  attempt: number;
+  attempts: number;
+  cycle: number;
+  cycles: number;
+  duration_ms: number;
+  failure_category: string;
+  gate: string;
+  kind: string;
+  phase: string;
+  preflight_status: string;
+  reason_code: string;
+  repair_attempt: number;
+  repair_iteration: number;
+  requires_reapproval: boolean;
+  result: string;
+}>;
+
+export type ShadowRunVisualizationStep = {
+  id: string;
+  order: number;
+  label: string;
+  status: string;
+  metadata?: ShadowStepMetadata;
+  warnings?: string[];
+  errors?: string[];
+};
+
+export type ShadowRunVisualizationEdge = {
+  source: string;
+  target: string;
+  label?: string | null;
+};
+
+export type ShadowRunVisualizationFlags = {
+  requires_reapproval?: boolean;
+  has_repair?: boolean;
+  has_error?: boolean;
+  warnings?: string[];
+  errors?: string[];
+};
+
+export type ShadowRunVisualization = {
+  contract_version: string;
+  run: ShadowRunSummary;
+  steps: ShadowRunVisualizationStep[];
+  edges: ShadowRunVisualizationEdge[];
+  flags: ShadowRunVisualizationFlags;
+};
