@@ -77,6 +77,7 @@ const PYTHON_EXECUTABLE =
   "C:\\Users\\Leandro Silveira\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe";
 const AGENT_RUN_ID = "11111111-1111-4111-8111-111111111111";
 const APPROVED_SQL = "SELECT id FROM schema_test.table_test";
+const LANGGRAPH_S2S_TOKEN = "test-local-s2s-token";
 
 type LocalLangGraphServer = {
   process: ChildProcess;
@@ -102,6 +103,7 @@ function resetRouteMocks() {
   vi.stubEnv("N8N_INTERNAL_WEBHOOK_TOKEN", "test-token");
   vi.stubEnv("LANGGRAPH_SHADOW_ENABLED", "true");
   vi.stubEnv("LANGGRAPH_SHADOW_TIMEOUT_MS", "500");
+  vi.stubEnv("LANGGRAPH_S2S_TOKEN", LANGGRAPH_S2S_TOKEN);
   routeMocks.afterCallbacks.length = 0;
   routeMocks.loggerWarn.mockReset();
   routeMocks.requireAgentSession.mockResolvedValue({ session, response: null });
@@ -207,6 +209,7 @@ async function startLangGraphServer(): Promise<LocalLangGraphServer> {
         ...process.env,
         LANGGRAPH_LOCAL_TEST_ONLY: "1",
         LANGGRAPH_LOCAL_TEST_HOST: "127.0.0.1",
+        LANGGRAPH_S2S_TOKEN,
         PYTHONDONTWRITEBYTECODE: "1",
         PYTHONUTF8: "1"
       },
@@ -413,6 +416,7 @@ describe("LangGraph local shadow E2E", () => {
         }
       });
       expect(JSON.stringify(requests).toLowerCase()).not.toContain("authorization");
+      expect(JSON.stringify(requests)).not.toContain(LANGGRAPH_S2S_TOKEN);
       expect(JSON.stringify(requests).toLowerCase()).not.toContain("cookie");
       expect(JSON.stringify(requests).toLowerCase()).not.toContain("session");
       expect(JSON.stringify(requests).toLowerCase()).not.toContain("credentials");
@@ -438,6 +442,25 @@ describe("LangGraph local shadow E2E", () => {
       agent_run_id: AGENT_RUN_ID
     });
     expect(routeMocks.loggerWarn).toHaveBeenCalled();
+    expect(blockedHosts).toEqual([]);
+  });
+
+  it("keeps official response intact when S2S token is missing", async () => {
+    const { blockedHosts } = installNetworkGuard();
+    const generate = await callGenerateRoute("http://127.0.0.1:9");
+    vi.stubEnv("LANGGRAPH_S2S_TOKEN", "");
+    await routeMocks.afterCallbacks[0]();
+
+    expect(generate.body).toMatchObject({
+      success: true,
+      agent_run_id: AGENT_RUN_ID
+    });
+    expect(routeMocks.loggerWarn).toHaveBeenCalledWith(
+      "generate_sql.langgraph_shadow_failed",
+      expect.objectContaining({
+        status: "configuration_error"
+      })
+    );
     expect(blockedHosts).toEqual([]);
   });
 

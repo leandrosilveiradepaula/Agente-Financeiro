@@ -135,9 +135,11 @@ async function dispatchLangGraphShadow(
   }
 
   let url: string;
+  let s2sToken: string;
 
   try {
     url = buildShadowUrl(env, path);
+    s2sToken = getS2sToken(env);
   } catch {
     return sanitizedFailure("configuration_error");
   }
@@ -150,6 +152,7 @@ async function dispatchLangGraphShadow(
     const response = await fetchImpl(url, {
       method: "POST",
       headers: {
+        Authorization: `Bearer ${s2sToken}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify(payload),
@@ -218,6 +221,14 @@ function buildShadowUrl(env: ShadowEnv, path: string): string {
   const url = new URL(baseUrl);
 
   return `${url.toString().replace(/\/+$/, "")}${path}`;
+}
+
+function getS2sToken(env: ShadowEnv): string {
+  const token = env.LANGGRAPH_S2S_TOKEN?.trim();
+  if (!token) {
+    throw new Error("LANGGRAPH_S2S_TOKEN is required.");
+  }
+  return token;
 }
 
 function getShadowTimeoutMs(env: ShadowEnv): number {

@@ -11,7 +11,8 @@ import {
 const env = {
   LANGGRAPH_INTERNAL_BASE_URL: "http://127.0.0.1:8000",
   LANGGRAPH_SHADOW_TIMEOUT_MS: "1500",
-  LANGGRAPH_SHADOW_ENABLED: "false"
+  LANGGRAPH_SHADOW_ENABLED: "false",
+  LANGGRAPH_S2S_TOKEN: "test-s2s-token"
 };
 
 const shadowRun = {
@@ -121,7 +122,7 @@ describe("LangGraph shadow read client", () => {
     );
   });
 
-  it("does not send Cookie or Authorization headers", async () => {
+  it("sends S2S Authorization and does not send Cookie", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, { shadow_runs: [] }));
 
     await listLangGraphShadowRuns("agent-run-1", undefined, { env, fetchImpl });
@@ -130,7 +131,25 @@ describe("LangGraph shadow read client", () => {
     const headerNames = Object.keys(headers).map((key) => key.toLowerCase());
 
     expect(headerNames).not.toContain("cookie");
-    expect(headerNames).not.toContain("authorization");
+    expect(headers.Authorization).toBe("Bearer test-s2s-token");
+  });
+
+  it("fails safely when S2S token is missing", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, { shadow_runs: [] }));
+
+    const result = await listLangGraphShadowRuns("agent-run-1", undefined, {
+      env: {
+        ...env,
+        LANGGRAPH_S2S_TOKEN: ""
+      },
+      fetchImpl
+    });
+
+    expect(result).toMatchObject({
+      status: "configuration_error",
+      errorMessage: "LangGraph shadow read failed"
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it.each([

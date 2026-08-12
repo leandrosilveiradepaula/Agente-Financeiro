@@ -9,7 +9,8 @@ import type { AgentSession } from "@/lib/auth/auth-types";
 const enabledEnv = {
   LANGGRAPH_SHADOW_ENABLED: "true",
   LANGGRAPH_INTERNAL_BASE_URL: "http://127.0.0.1:8000",
-  LANGGRAPH_SHADOW_TIMEOUT_MS: "1500"
+  LANGGRAPH_SHADOW_TIMEOUT_MS: "1500",
+  LANGGRAPH_S2S_TOKEN: "test-s2s-token"
 };
 
 const baseInput = {
@@ -123,6 +124,7 @@ describe("LangGraph shadow client", () => {
       })
     );
     expect(body.question).toBe(baseInput.question);
+    expect(JSON.stringify(body)).not.toContain("test-s2s-token");
     expect(body.correlation_metadata).toMatchObject({
       source: "nextjs_bff",
       event: "generate",
@@ -217,7 +219,7 @@ describe("LangGraph shadow client", () => {
     expect(Object.keys(headers).map((key) => key.toLowerCase())).not.toContain("cookie");
   });
 
-  it("does not send authorization headers", async () => {
+  it("sends only the service-to-service authorization header", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(okResponse());
 
     await dispatchLangGraphGenerateShadow(baseInput, {
@@ -226,9 +228,29 @@ describe("LangGraph shadow client", () => {
     });
 
     const headers = fetchImpl.mock.calls[0][1].headers as Record<string, string>;
-    expect(Object.keys(headers).map((key) => key.toLowerCase())).not.toContain(
-      "authorization"
+    expect(headers.Authorization).toBe("Bearer test-s2s-token");
+    expect(headers).not.toHaveProperty("Cookie");
+    expect(JSON.stringify(readRequestBody(fetchImpl))).not.toContain(
+      "test-s2s-token"
     );
+  });
+
+  it("fails configuration safely when S2S token is missing", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(okResponse());
+
+    const result = await dispatchLangGraphGenerateShadow(baseInput, {
+      env: {
+        ...enabledEnv,
+        LANGGRAPH_S2S_TOKEN: ""
+      },
+      fetchImpl
+    });
+
+    expect(result).toMatchObject({
+      status: "configuration_error",
+      errorMessage: "LangGraph shadow dispatch failed"
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("handles timeout without throwing", async () => {

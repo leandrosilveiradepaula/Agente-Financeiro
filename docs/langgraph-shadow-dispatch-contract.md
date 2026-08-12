@@ -9,8 +9,14 @@ Shadow dispatch is off by default:
 - `LANGGRAPH_SHADOW_ENABLED=false`
 - `LANGGRAPH_INTERNAL_BASE_URL=http://127.0.0.1:8000`
 - `LANGGRAPH_SHADOW_TIMEOUT_MS=1500`
+- `LANGGRAPH_S2S_TOKEN=`
 
 If `LANGGRAPH_SHADOW_ENABLED` is not exactly `true`, the BFF does not call LangGraph.
+
+`LANGGRAPH_S2S_TOKEN` is a server-only secret. The BFF sends it as
+`Authorization: Bearer <test-s2s-secret>` to LangGraph internal POST and read
+endpoints. It is not a browser/session credential and must not use a
+`NEXT_PUBLIC_` prefix.
 
 ## Internal Endpoints
 
@@ -65,6 +71,7 @@ If `LANGGRAPH_SHADOW_ENABLED` is not exactly `true`, the BFF does not call LangG
 - n8n remains the official path for SQL generation and Watson execution.
 - LangGraph shadow failures never alter the official HTTP status or body.
 - LangGraph shadow dispatch does not send cookies, user authorization headers, session tokens, credentials, raw request headers, or policy objects.
+- LangGraph shadow dispatch and read use only the server-to-server Bearer credential configured in `LANGGRAPH_S2S_TOKEN`.
 - LangGraph shadow does not execute real SQL, call real Watson, or replace the approved SQL.
 - A repaired SQL observed by LangGraph shadow is only evidence or a proposal; it is not approved for execution by the original approval event.
 - Shadow HTTP has an explicit timeout and no automatic retry in this microstep.

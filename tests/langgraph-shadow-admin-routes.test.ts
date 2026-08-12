@@ -300,6 +300,32 @@ describe("admin Shadow BFF routes", () => {
     });
   });
 
+  it("maps LangGraph S2S 401 to safe Shadow service unavailable", async () => {
+    routeMocks.listLangGraphShadowRuns.mockResolvedValue({
+      status: "unavailable",
+      httpStatus: 401,
+      errorMessage: "LangGraph shadow read failed"
+    });
+
+    const { GET } = await import("@/app/api/admin/runs/[id]/shadow-runs/route");
+    const response = await GET(
+      new Request(`http://localhost/api/admin/runs/${agentRunId}/shadow-runs`),
+      routeContext({ id: agentRunId })
+    );
+    const body = await response.json();
+    const serialized = JSON.stringify(body).toLowerCase();
+
+    expect(response.status).toBe(503);
+    expect(body).toMatchObject({
+      success: false,
+      error: "shadow_unavailable",
+      shadow_status: "unavailable",
+      shadow_http_status: 401
+    });
+    expect(serialized).not.toContain("token");
+    expect(serialized).not.toContain("unauthorized");
+  });
+
   it("does not let LANGGRAPH_SHADOW_ENABLED block administrative reads", async () => {
     vi.stubEnv("LANGGRAPH_SHADOW_ENABLED", "false");
 

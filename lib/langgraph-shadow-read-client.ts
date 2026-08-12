@@ -93,9 +93,11 @@ async function readLangGraphShadow<T>(
 ): Promise<LangGraphShadowReadResult<T>> {
   const env = options.env ?? process.env;
   let url: string;
+  let s2sToken: string;
 
   try {
     url = buildShadowUrl(env, path);
+    s2sToken = getS2sToken(env);
   } catch {
     return sanitizedFailure("configuration_error");
   }
@@ -108,6 +110,7 @@ async function readLangGraphShadow<T>(
     const response = await fetchImpl(url, {
       method: "GET",
       headers: {
+        Authorization: `Bearer ${s2sToken}`,
         Accept: "application/json"
       },
       cache: "no-store",
@@ -396,6 +399,14 @@ function buildShadowUrl(env: ShadowReadEnv, path: string): string {
   const url = new URL(baseUrl);
 
   return `${url.toString().replace(/\/+$/, "")}${path}`;
+}
+
+function getS2sToken(env: ShadowReadEnv): string {
+  const token = env.LANGGRAPH_S2S_TOKEN?.trim();
+  if (!token) {
+    throw new Error("LANGGRAPH_S2S_TOKEN is required.");
+  }
+  return token;
 }
 
 function getShadowTimeoutMs(env: ShadowReadEnv): number {
