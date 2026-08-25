@@ -122,6 +122,109 @@ describe("LangGraph shadow read client", () => {
     );
   });
 
+  it("preserves canonical visualization status and step order fields", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, visualization));
+
+    const result = await getLangGraphShadowRunVisualization("shadow/record 1", {
+      env,
+      fetchImpl
+    });
+
+    expect(result.status).toBe("ok");
+    expect(result.status === "ok" ? result.data.run.status : null).toBe("completed");
+    expect(result.status === "ok" ? result.data.steps[0].order : null).toBe(1);
+  });
+
+  it("normalizes LangGraph visualization final_status and sequence aliases", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        ...visualization,
+        run: {
+          ...shadowRun,
+          status: undefined,
+          final_status: "rejected"
+        },
+        steps: [
+          {
+            id: "step-1",
+            sequence: 3,
+            label: "engine_preflight",
+            status: "rejected",
+            metadata: {
+              reason_code: "shadow_test"
+            }
+          }
+        ]
+      })
+    );
+
+    const result = await getLangGraphShadowRunVisualization("shadow/record 1", {
+      env,
+      fetchImpl
+    });
+
+    expect(result.status).toBe("ok");
+    expect(result.status === "ok" ? result.data.run.status : null).toBe("rejected");
+    expect(result.status === "ok" ? result.data.steps[0].order : null).toBe(3);
+  });
+
+  it("keeps canonical visualization fields ahead of aliases", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        ...visualization,
+        run: {
+          ...shadowRun,
+          status: "success",
+          final_status: "rejected"
+        },
+        steps: [
+          {
+            id: "step-1",
+            order: 1,
+            sequence: 3,
+            label: "engine_preflight",
+            status: "success"
+          }
+        ]
+      })
+    );
+
+    const result = await getLangGraphShadowRunVisualization("shadow/record 1", {
+      env,
+      fetchImpl
+    });
+
+    expect(result.status).toBe("ok");
+    expect(result.status === "ok" ? result.data.run.status : null).toBe("success");
+    expect(result.status === "ok" ? result.data.steps[0].order : null).toBe(1);
+  });
+
+  it("rejects visualization missing both canonical fields and aliases", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        ...visualization,
+        run: {
+          ...shadowRun,
+          status: undefined
+        },
+        steps: [
+          {
+            id: "step-1",
+            label: "engine_preflight",
+            status: "success"
+          }
+        ]
+      })
+    );
+
+    const result = await getLangGraphShadowRunVisualization("shadow/record 1", {
+      env,
+      fetchImpl
+    });
+
+    expect(result.status).toBe("invalid_response");
+  });
+
   it("sends S2S Authorization and does not send Cookie", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, { shadow_runs: [] }));
 

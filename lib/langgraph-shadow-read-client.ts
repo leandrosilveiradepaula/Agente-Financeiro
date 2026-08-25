@@ -177,7 +177,7 @@ function parseShadowRunRecord(value: unknown): ShadowRunSummary | null {
   const shadowRecordId = stringField(candidate, "shadow_record_id");
   const agentRunId = stringField(candidate, "agent_run_id");
   const eventType = stringField(candidate, "event_type");
-  const status = stringField(candidate, "status");
+  const status = stringField(candidate, "status") ?? stringField(candidate, "final_status");
   const createdAt = stringField(candidate, "created_at");
 
   if (!shadowRecordId || !agentRunId || !eventType || !status || !createdAt) {
@@ -237,7 +237,7 @@ function parseStep(value: unknown): ShadowRunVisualizationStep | null {
   const id = stringField(value, "id");
   const label = stringField(value, "label");
   const status = stringField(value, "status");
-  const order = numberField(value, "order");
+  const order = numberField(value, "order") ?? numberField(value, "sequence");
 
   if (!id || !label || !status || order === null) {
     return null;
