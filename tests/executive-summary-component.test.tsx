@@ -67,7 +67,10 @@ describe("ExecutiveSummary", () => {
     expect(view.textContent).toContain("A análise identifica os maiores estouros de orçamento");
     expect(view.textContent).toContain("Ranking utilizado: ranking_geral.");
     expect(view.textContent).toContain("Receita de Vendas não deve entrar nesta leitura");
-    expect(view.textContent).toContain("Resposta executiva recebida pelo serviço de análise.");
+    expect(view.textContent).toContain("Resposta executiva");
+    expect(view.textContent).toContain("Copiar resposta");
+    expect(view.textContent).not.toContain("Resposta baseada no resultado carregado");
+    expect(view.textContent).not.toContain("Resposta executiva recebida pelo serviço de análise.");
     expect(view.textContent).not.toContain("Regerar resposta");
     expect(onSummaryGenerated).toHaveBeenCalledWith(backendSummary, undefined);
   });
@@ -100,7 +103,8 @@ describe("ExecutiveSummary", () => {
     expect(view.textContent).toContain("Resumo antigo da orquestração.");
     expect(view.textContent).toContain("Maior variação positiva");
     expect(view.textContent).not.toContain("Maior variação negativa");
-    expect(view.textContent).toContain("Resposta executiva recebida pelo serviço de análise.");
+    expect(view.textContent).not.toContain("Resposta baseada no resultado carregado");
+    expect(view.textContent).not.toContain("Resposta executiva recebida pelo serviço de análise.");
     expect(view.textContent).not.toContain(
       "Resposta executiva gerada a partir dos resultados normalizados da interface."
     );
@@ -139,7 +143,10 @@ describe("ExecutiveSummary", () => {
     );
 
     expect(view.textContent).toContain("Regerar resposta");
-    expect(view.textContent).toContain(
+    expect(view.textContent).toContain("Copiar resposta");
+    expect(view.textContent).not.toContain("Resposta baseada no resultado carregado");
+    expect(view.textContent).not.toContain("Resposta executiva recebida pelo serviço de análise.");
+    expect(view.textContent).not.toContain(
       "Resposta executiva gerada a partir dos resultados normalizados da interface."
     );
     expect(view.textContent).toContain("Maior variação negativa");

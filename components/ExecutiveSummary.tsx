@@ -89,9 +89,6 @@ export function ExecutiveSummary({
             <Sparkles className="h-5 w-5 text-lake" aria-hidden="true" />
             <h3 className="text-lg font-semibold text-ink">Resposta executiva</h3>
           </div>
-          <p className="mt-1 text-sm text-steel">
-            Resposta baseada no resultado carregado
-          </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
           <button
@@ -140,12 +137,6 @@ export function ExecutiveSummary({
           {summary.warnings.join(" ")}
         </div>
       ) : null}
-
-      <p className="mt-4 text-xs font-medium text-slate-500">
-        {usesBackendSummary
-          ? "Resposta executiva recebida pelo serviço de análise."
-          : "Resposta executiva gerada a partir dos resultados normalizados da interface."}
-      </p>
     </section>
   );
 }
