@@ -266,6 +266,7 @@ export default function Home() {
   const showInterfaceSettingsTool = canManageOperationalTools;
   const showDiagnosticsTool = canAuditOperationalTools;
   const showBenchmarkTool = canAuditOperationalTools;
+  const canSeeTechnicalDetails = canAuditOperationalTools;
   const hasOperationalTools =
     showWhatsAppOperationalTool ||
     showInterfaceSettingsTool ||
@@ -276,7 +277,7 @@ export default function Home() {
   const canExecuteWatson =
     !generation.isLoading &&
     !execution.isLoading &&
-    !execution.response?.success &&
+    execution.response?.success !== true &&
     canExecuteSqlByPolicy &&
     !policyLoading &&
     Boolean(generation.response?.success) &&
@@ -285,6 +286,7 @@ export default function Home() {
   const isSqlHidden = Boolean(generation.response?.sql_hidden || generation.response?.can_view_sql === false);
   const detectedIntent = generation.response?.detected_intent || "";
   const hasDetectedIntent = Boolean(detectedIntent && detectedIntent !== "nao_informado");
+  const hasSuccessfulExecution = execution.response?.success === true;
   const resultMetadata = useMemo(
     () => ({
       agent_version: generation.response?.agent_version,
@@ -1096,33 +1098,47 @@ export default function Home() {
       tone: generation.error ? "error" : generation.response?.success ? "success" : "neutral",
       badge: generation.error ? "erro" : generation.response?.success ? "sucesso" : "pendente"
     },
-    {
-      label: "Intenção",
-      value: hasDetectedIntent ? detectedIntent : "Não detectada",
-      icon: BarChart3,
-      tone: hasDetectedIntent ? "success" : "neutral"
-    },
+    ...(hasDetectedIntent
+      ? [
+          {
+            label: "Tipo de análise",
+            value: "Identificada",
+            icon: BarChart3,
+            tone: "success" as const
+          }
+        ]
+      : []),
     {
       label: "Validação",
       value: generation.error
         ? "Erro"
-        : generation.response?.validation_status === "aprovado"
-          ? "Validação aprovada"
+        : hasSuccessfulExecution
+          ? "Concluído"
+          : generation.response?.validation_status === "aprovado"
+            ? "Análise validada"
           : generation.response?.validation_status || "Pendente",
       icon: generation.error ? XCircle : ShieldCheck,
       tone: generation.error
         ? "error"
-        : statusTone(generation.response?.validation_status || "Pendente"),
+        : hasSuccessfulExecution
+          ? "success"
+          : statusTone(generation.response?.validation_status || "Pendente"),
       badge: generation.error
         ? "erro"
-        : statusBadge(generation.response?.validation_status || "pendente")
+        : hasSuccessfulExecution
+          ? "concluído"
+          : statusBadge(generation.response?.validation_status || "pendente")
     },
-    {
-      label: "Versão",
-      value: displayAgentVersion,
-      icon: ShieldCheck,
-      tone: "neutral"
-    },
+    ...(displayAgentVersion
+      ? [
+          {
+            label: "Versão",
+            value: displayAgentVersion,
+            icon: ShieldCheck,
+            tone: "neutral" as const
+          }
+        ]
+      : []),
     {
       label: "Execução",
       value: execution.response?.success
@@ -1226,10 +1242,12 @@ export default function Home() {
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:items-end">
-            <div className="inline-flex w-fit items-center gap-2 rounded-md border border-blue-200 bg-white px-3 py-2 text-sm font-medium text-ledger shadow-sm">
-              <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-              {displayAgentVersion}
-            </div>
+            {displayAgentVersion ? (
+              <div className="inline-flex w-fit items-center gap-2 rounded-md border border-blue-200 bg-white px-3 py-2 text-sm font-medium text-ledger shadow-sm">
+                <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                {displayAgentVersion}
+              </div>
+            ) : null}
             <div className="flex flex-wrap gap-2 sm:justify-end">
               <span className="inline-flex rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
                 interface-v1.0-demo
@@ -1477,14 +1495,16 @@ export default function Home() {
                   <FileCode2 className="h-5 w-5 text-lake" aria-hidden="true" />
                   <h2 className="text-lg font-semibold text-ink">Resultados</h2>
                 </div>
-                <ResultModeTabs
-                  mode={resultMode}
-                  disabledModes={!canExecuteSqlByPolicy ? ["manual"] : []}
-                  onModeChange={setResultMode}
-                />
+                {!hasSuccessfulExecution ? (
+                  <ResultModeTabs
+                    mode={resultMode}
+                    disabledModes={!canExecuteSqlByPolicy ? ["manual"] : []}
+                    onModeChange={setResultMode}
+                  />
+                ) : null}
               </div>
 
-              {resultMode === "auto" ? (
+              {!hasSuccessfulExecution && resultMode === "auto" ? (
                 <>
                   {!canExecuteSqlByPolicy ? (
                     <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
@@ -1503,7 +1523,7 @@ export default function Home() {
                     </button>
                   </div>
                 </>
-              ) : (
+              ) : !hasSuccessfulExecution ? (
                 <div className="mb-4">
                   <ManualWatsonResultInput
                     value={manualWatsonJson}
@@ -1512,16 +1532,18 @@ export default function Home() {
                     onClearJson={clearManualJson}
                   />
                 </div>
-              )}
+              ) : null}
 
               {execution.response ? (
                 <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-xs font-semibold uppercase text-slate-500">ID técnico</p>
-                    <p className="mt-1 truncate text-sm font-semibold text-ink">
-                      {execution.response.query_id || "Não informado"}
-                    </p>
-                  </div>
+                  {canSeeTechnicalDetails ? (
+                    <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs font-semibold uppercase text-slate-500">ID técnico</p>
+                      <p className="mt-1 truncate text-sm font-semibold text-ink">
+                        {execution.response.query_id || "Não informado"}
+                      </p>
+                    </div>
+                  ) : null}
                   <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
                     <p className="text-xs font-semibold uppercase text-slate-500">Tempo</p>
                     <p className="mt-1 text-sm font-semibold text-ink">

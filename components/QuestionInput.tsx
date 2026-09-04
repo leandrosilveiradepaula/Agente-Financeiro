@@ -51,9 +51,12 @@ export function QuestionInput({
 
       <label className="mt-3 flex items-start justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
         <span className="min-w-0">
-          <span className="block text-sm font-semibold text-ink">Reaproveitar análises conhecidas</span>
+          <span className="block text-sm font-semibold text-ink">
+            Reaproveitar análises já processadas
+          </span>
           <span className="mt-1 block text-xs leading-5 text-steel">
-            Usa consultas já aprovadas para perguntas recorrentes.
+            Usa resultados previamente processados quando houver correspondência válida,
+            reduzindo tempo e consumo de recursos.
           </span>
         </span>
         <input

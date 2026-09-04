@@ -28,9 +28,9 @@ describe("getAgentDisplayVersion", () => {
     ).toBe("v2.2.31-stable-preflight-retry");
   });
 
-  it("returns a neutral fallback when no display version is configured", () => {
+  it("returns an empty value when no display version is configured", () => {
     delete process.env.NEXT_PUBLIC_AGENT_DISPLAY_VERSION;
 
-    expect(getAgentDisplayVersion()).toBe("versão não informada");
+    expect(getAgentDisplayVersion()).toBe("");
   });
 });
