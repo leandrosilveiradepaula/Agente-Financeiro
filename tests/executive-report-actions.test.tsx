@@ -223,4 +223,15 @@ describe("ExecutiveReportActions", () => {
     expect(view.textContent).toContain("CSV");
     expect(view.textContent).not.toContain("Resumo executivo");
   });
+
+  it("uses presentation labels and formatted values in the preview only", () => {
+    const view = renderActions();
+
+    clickButton("Visualizar relatório");
+
+    expect(view.textContent).toContain("Conta Contábil");
+    expect(view.textContent).toContain("Variação");
+    expect(view.textContent).toContain("-R$ 851.264,60");
+    expect(view.textContent).not.toContain("variancia_rs");
+  });
 });

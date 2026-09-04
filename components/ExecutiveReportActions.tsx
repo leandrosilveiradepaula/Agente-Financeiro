@@ -14,6 +14,13 @@ import {
 import { exportExecutiveCsv, exportExecutiveXlsx } from "@/lib/exportExecutiveFiles";
 import type { InterfaceSettings } from "@/lib/interface-settings";
 import { prioritizePresentationColumns } from "@/lib/report-column-priority";
+import {
+  formatResultCellValue,
+  getResultColumnAlignment,
+  getResultColumnKind,
+  getResultColumnKindFromRows,
+  getResultColumnLabel
+} from "@/lib/result-presentation";
 import type { ExecutiveSummaryResult, ResultRow } from "@/lib/types";
 
 type ExecutiveReportActionsProps = {
@@ -276,19 +283,46 @@ export function ExecutiveReportActions({
                 <table className="w-full min-w-[520px] text-left text-xs">
                   <thead className="bg-slate-50 text-slate-500">
                     <tr>
-                      {previewColumns.map((column) => (
-                        <th key={column} className="px-2 py-2">
-                          {column}
-                        </th>
-                      ))}
+                      {previewColumns.map((column) => {
+                        const alignment = getResultColumnAlignment(
+                          getResultColumnKindFromRows(column, data)
+                        );
+
+                        return (
+                          <th
+                            key={column}
+                            className={`px-2 py-2 ${
+                              alignment === "right"
+                                ? "text-right"
+                                : alignment === "center"
+                                  ? "text-center"
+                                  : "text-left"
+                            }`}
+                          >
+                            {getResultColumnLabel(column)}
+                          </th>
+                        );
+                      })}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
                     {data.slice(0, 5).map((row, index) => (
                       <tr key={index}>
                         {previewColumns.map((column) => (
-                          <td key={column} className="px-2 py-2">
-                            {String(row[column] ?? "")}
+                          <td
+                            key={column}
+                            className={`px-2 py-2 ${
+                              getResultColumnAlignment(getResultColumnKind(column, row[column])) ===
+                              "right"
+                                ? "text-right tabular-nums"
+                                : getResultColumnAlignment(
+                                      getResultColumnKind(column, row[column])
+                                    ) === "center"
+                                  ? "text-center"
+                                  : "text-left"
+                            }`}
+                          >
+                            {formatResultCellValue(column, row[column])}
                           </td>
                         ))}
                       </tr>

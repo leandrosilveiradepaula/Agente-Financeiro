@@ -1,12 +1,19 @@
+function roundedToZero(value: number, fractionDigits: number) {
+  return Math.abs(value) < 1 / 10 ** fractionDigits / 2 ? 0 : value;
+}
+
 export function formatBRL(value: number): string {
+  const normalizedValue = roundedToZero(value, 2);
   const formatted = new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: "BRL",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
-  }).format(Math.abs(value));
+  })
+    .format(Math.abs(normalizedValue))
+    .replace(/\u00a0/g, " ");
 
-  return value < 0 ? `-${formatted}` : formatted;
+  return normalizedValue < 0 ? `-${formatted}` : formatted;
 }
 
 export function formatPercent(value: number): string {
@@ -18,10 +25,21 @@ export function formatPercent(value: number): string {
   }).format(normalized)}%`;
 }
 
+export function formatPercentLiteral(value: number, maximumFractionDigits = 1): string {
+  const normalizedValue = roundedToZero(value, maximumFractionDigits);
+
+  return `${new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: maximumFractionDigits,
+    maximumFractionDigits
+  }).format(normalizedValue)}%`;
+}
+
 export function formatNumber(value: number): string {
+  const normalizedValue = roundedToZero(value, 2);
+
   return new Intl.NumberFormat("pt-BR", {
     maximumFractionDigits: 2
-  }).format(value);
+  }).format(normalizedValue);
 }
 
 export function formatCellValue(column: string, value: unknown): string {

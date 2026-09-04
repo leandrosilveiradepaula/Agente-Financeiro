@@ -157,4 +157,43 @@ describe("exportExecutivePdf", () => {
     expect(mocks.text).toHaveBeenCalledWith("SQL utilizada", expect.any(Number), expect.any(Number));
     expect(mocks.text).toHaveBeenCalledWith("SELECT 1", expect.any(Number), expect.any(Number));
   });
+
+  it("uses presentation labels and formatted values in the result table", () => {
+    exportExecutivePdf({
+      question: "Pergunta",
+      sql: "",
+      columns: [
+        "centro_custo",
+        "opex_realizado_rs",
+        "perc_orcado_consumido",
+        "ranking_desempenho"
+      ],
+      data: [
+        {
+          centro_custo: "Financeiro",
+          opex_realizado_rs: "-759015.00",
+          perc_orcado_consumido: "111.3905195186381000",
+          ranking_desempenho: "1"
+        }
+      ],
+      metadata: {
+        row_count: 1,
+        success: true
+      },
+      executiveSummary: null,
+      settings: {
+        pdfMaxRows: 5,
+        pdfMaxColumns: 8,
+        pdfIncludeSql: false,
+        pdfMaxSqlLines: 20
+      }
+    });
+
+    expect(mocks.autoTable.mock.calls[1][1].head).toEqual([
+      ["Centro de Custo", "OPEX Realizado", "Orçamento Consumido", "Posição"]
+    ]);
+    expect(mocks.autoTable.mock.calls[1][1].body).toEqual([
+      ["Financeiro", "-R$ 759.015,00", "111,4%", "1º"]
+    ]);
+  });
 });

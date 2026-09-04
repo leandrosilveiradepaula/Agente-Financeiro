@@ -1,9 +1,13 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { InterfaceSettings } from "@/lib/interface-settings";
-import { formatBRL, formatNumber, formatPercent } from "@/lib/number-formatting";
-import { parseReportNumber } from "@/lib/report-row-normalization";
 import { prioritizePresentationColumns } from "@/lib/report-column-priority";
+import {
+  formatResultCellValue,
+  getResultColumnAlignment,
+  getResultColumnKind,
+  getResultColumnLabel
+} from "@/lib/result-presentation";
 import type { ExecutiveSummaryResult, ResultRow } from "@/lib/types";
 import { createExecutiveExportFilename } from "@/lib/exportExecutiveFiles";
 
@@ -54,59 +58,8 @@ const theme: PdfTheme = {
   warningBorder: [245, 158, 11]
 };
 
-const DIMENSION_COLUMNS = new Set([
-  "conta_contabil",
-  "nk_conta_contabil",
-  "grupo_dre",
-  "subgrupo",
-  "marca",
-  "setor",
-  "centro_custo",
-  "tipo_impacto",
-  "tipo_variacao",
-  "status_rol",
-  "status_orcamento"
-]);
-
 function truncatePdfText(text: string) {
   return text.length > 90 ? `${text.slice(0, 87)}...` : text;
-}
-
-function parseNumericValue(value: unknown): number | null {
-  return parseReportNumber(value);
-}
-
-function formatPdfTableValue(column: string, value: unknown): string {
-  if (value === null || value === undefined || value === "") {
-    return "";
-  }
-
-  const normalizedColumn = column.trim().toLowerCase();
-  const text = String(value).replace(/\s+/g, " ").trim();
-
-  if (DIMENSION_COLUMNS.has(normalizedColumn)) {
-    return truncatePdfText(text);
-  }
-
-  const numericValue = parseNumericValue(value);
-
-  if (normalizedColumn.startsWith("ranking_") || normalizedColumn.includes("ranking")) {
-    return numericValue === null ? truncatePdfText(text) : formatNumber(Math.round(numericValue));
-  }
-
-  if (normalizedColumn.endsWith("_rs")) {
-    return numericValue === null ? truncatePdfText(text) : formatBRL(numericValue);
-  }
-
-  if (normalizedColumn.includes("_perc") || normalizedColumn.startsWith("perc_")) {
-    return numericValue === null ? truncatePdfText(text) : formatPercent(numericValue);
-  }
-
-  if (numericValue !== null && typeof value === "number") {
-    return formatNumber(numericValue);
-  }
-
-  return truncatePdfText(text);
 }
 
 function pageSize(doc: jsPDF) {
@@ -280,8 +233,10 @@ function drawTable(
 
   autoTable(doc, {
     startY: y,
-    head: [tableColumns],
-    body: tableRows.map((row) => tableColumns.map((column) => formatPdfTableValue(column, row[column]))),
+    head: [tableColumns.map(getResultColumnLabel)],
+    body: tableRows.map((row) =>
+      tableColumns.map((column) => truncatePdfText(formatResultCellValue(column, row[column])))
+    ),
     styles: {
       font: "helvetica",
       fontSize: tableColumns.length > 6 ? 7.2 : 8,
@@ -298,6 +253,12 @@ function drawTable(
     },
     alternateRowStyles: { fillColor: theme.soft },
     bodyStyles: { textColor: theme.ink },
+    columnStyles: Object.fromEntries(
+      tableColumns.map((column, index) => {
+        const alignment = getResultColumnAlignment(getResultColumnKind(column, tableRows[0]?.[column]));
+        return [index, { halign: alignment }];
+      })
+    ),
     margin: { left: theme.margin, right: theme.margin },
     tableWidth: "auto"
   });

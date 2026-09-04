@@ -3,7 +3,14 @@
 import { Download, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { exportExecutiveCsv } from "@/lib/exportExecutiveFiles";
-import { formatCellValue, isNumericDisplayColumn } from "@/lib/number-formatting";
+import {
+  formatResultCellValue,
+  getResultColumnAlignment,
+  getResultColumnKind,
+  getResultColumnKindFromRows,
+  getResultColumnLabel,
+  isNegativeResultValue
+} from "@/lib/result-presentation";
 import type { ResultRow } from "@/lib/types";
 
 type ResultTableProps = {
@@ -23,10 +30,6 @@ function formatCell(value: ResultRow[string]) {
   return String(value);
 }
 
-function isNegativeValue(value: ResultRow[string]) {
-  return typeof value === "number" && value < 0;
-}
-
 function isRankingOne(column: string, value: ResultRow[string]) {
   return column.toLowerCase().includes("ranking") && Number(value) === 1;
 }
@@ -35,6 +38,10 @@ export function ResultTable({ columns, data }: ResultTableProps) {
   const [filter, setFilter] = useState("");
   const [exportError, setExportError] = useState("");
   const normalizedFilter = filter.trim().toLowerCase();
+  const columnKinds = useMemo(
+    () => new Map(columns.map((column) => [column, getResultColumnKindFromRows(column, data)])),
+    [columns, data]
+  );
   const filteredData = useMemo(() => {
     if (!normalizedFilter) {
       return data;
@@ -102,16 +109,25 @@ export function ResultTable({ columns, data }: ResultTableProps) {
         <table className="w-full min-w-[640px] border-collapse text-left text-sm">
           <thead className="sticky top-0 z-10 bg-slate-100 text-xs font-semibold uppercase tracking-normal text-slate-600">
             <tr>
-              {columns.map((column) => (
-                <th
-                  key={column}
-                  className={`whitespace-nowrap border-b border-slate-200 px-3 py-3 ${
-                    isNumericDisplayColumn(column) ? "text-right" : "text-left"
-                  }`}
-                >
-                  {column}
-                </th>
-              ))}
+              {columns.map((column) => {
+                const columnKind = columnKinds.get(column) ?? getResultColumnKind(column);
+                const alignment = getResultColumnAlignment(columnKind);
+
+                return (
+                  <th
+                    key={column}
+                    className={`whitespace-nowrap border-b border-slate-200 px-3 py-3 ${
+                      alignment === "right"
+                        ? "text-right"
+                        : alignment === "center"
+                          ? "text-center"
+                          : "text-left"
+                    }`}
+                  >
+                    {getResultColumnLabel(column)}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 bg-white text-slate-600">
@@ -120,18 +136,27 @@ export function ResultTable({ columns, data }: ResultTableProps) {
                 <tr key={`${rowIndex}-${columns.join("-")}`} className="hover:bg-slate-50">
                   {columns.map((column) => {
                     const cellValue = row[column];
-                    const numericColumn = isNumericDisplayColumn(column);
+                    const columnKind = getResultColumnKind(column, cellValue);
+                    const alignment = getResultColumnAlignment(columnKind);
+                    const numericColumn = alignment === "right";
 
                     return (
                       <td
                         key={column}
                         className={`max-w-80 px-3 py-3 align-top ${
-                          numericColumn ? "text-right tabular-nums" : "text-left"
+                          numericColumn
+                            ? "text-right tabular-nums"
+                            : alignment === "center"
+                              ? "text-center"
+                              : "text-left"
                         }`}
                       >
                         <span
                           className={`line-clamp-3 break-words ${
-                            isNegativeValue(cellValue) && column.toLowerCase().includes("variancia")
+                            numericColumn ? "whitespace-nowrap" : ""
+                          } ${
+                            isNegativeResultValue(column, cellValue) &&
+                            column.toLowerCase().includes("variancia")
                               ? "font-semibold text-rose-700"
                               : ""
                           } ${
@@ -140,7 +165,7 @@ export function ResultTable({ columns, data }: ResultTableProps) {
                               : ""
                           }`}
                         >
-                          {formatCellValue(column, cellValue)}
+                          {formatResultCellValue(column, cellValue)}
                         </span>
                       </td>
                     );
