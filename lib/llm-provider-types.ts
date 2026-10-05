@@ -8,6 +8,15 @@ export type LlmSelection = {
   config_version: string;
 };
 
+export type SafeLlmRuntime = {
+  adapter_type: string;
+  model_key: string;
+  config_version: string;
+  timeout_ms: number | null;
+  max_tokens: number | null;
+  temperature: number | null;
+};
+
 export type PublicLlmModel = LlmSelection & {
   id: string;
   display_name: string;
