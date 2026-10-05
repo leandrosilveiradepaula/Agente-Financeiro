@@ -438,7 +438,16 @@ export default function Home() {
         const defaultId = data.default_selection
           ? `${data.default_selection.provider_key}:${data.default_selection.model_key}:${data.default_selection.config_version}`
           : "";
+        const preferredModel =
+          interfaceSettings.defaultLlmModelId
+            ? data.models.find(
+                (model) =>
+                  model.id === interfaceSettings.defaultLlmModelId &&
+                  model.available_for_target
+              ) ?? null
+            : null;
         const defaultModel =
+          preferredModel ??
           data.models.find((model) => model.id === defaultId && model.available_for_target) ??
           data.models.find((model) => model.available_for_target) ??
           null;
@@ -459,7 +468,11 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [accountPolicy?.can_generate_sql, authState]);
+  }, [
+    accountPolicy?.can_generate_sql,
+    authState,
+    interfaceSettings.defaultLlmModelId
+  ]);
 
   useEffect(() => {
     let active = true;
@@ -1486,6 +1499,7 @@ export default function Home() {
                   >
                     <InterfaceSettingsPanel
                       settings={interfaceSettings}
+                      llmModels={llmModels}
                       onSaveSettings={saveInterfaceSettings}
                       onResetSettings={restoreInterfaceSettings}
                     />
