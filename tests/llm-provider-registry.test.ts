@@ -18,7 +18,10 @@ describe("LLM provider registry", () => {
 
     expect(models.length).toBeGreaterThan(0);
     expect(models.every((model) => model.capabilities.includes("sql_generation"))).toBe(true);
-    expect(models.some((model) => model.model_key === "sql-infodive")).toBe(false);
+    expect(models.some((model) => model.available_for_target)).toBe(true);
+    const localModel = models.find((model) => model.model_key === "sql-infodive");
+    expect(localModel).toBeDefined();
+    expect(localModel?.available_for_target).toBe(false);
   });
 
   it("keeps runtime connection references out of the public model shape", () => {
