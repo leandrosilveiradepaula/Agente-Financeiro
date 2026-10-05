@@ -16,6 +16,7 @@ export type GenerateSqlResponse = {
   cache?: SqlGenerationCacheMetadata;
   llm_provider?: string | null;
   llm_model?: string | null;
+  llm_config_version?: string | null;
   llm_prompt_tokens?: number | null;
   llm_completion_tokens?: number | null;
   llm_total_tokens?: number | null;

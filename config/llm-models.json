@@ -1,0 +1,51 @@
+{
+  "registry_version": "llm-registry-2026-10-05.1",
+  "environment": "demo",
+  "models": [
+    {
+      "provider_key": "google_gemini",
+      "model_key": "gemini-2.5-flash",
+      "config_version": "gemini-demo-v1",
+      "display_name": "Gemini 2.5 Flash",
+      "provider_display_name": "Google Gemini",
+      "description": "Modelo cloud atualmente usado pelo fluxo oficial da DEMO.",
+      "location": "cloud",
+      "status": "online",
+      "enabled": true,
+      "targets": ["official", "shadow"],
+      "is_default_for": ["official"],
+      "allowed_profiles": ["*"],
+      "capabilities": ["sql_generation"],
+      "adapter_type": "gemini_generate_content",
+      "runtime": {
+        "credential_ref_env": "GEMINI_API_KEY"
+      },
+      "timeout_ms": 180000,
+      "max_tokens": 8192,
+      "temperature": 0
+    },
+    {
+      "provider_key": "infodive_local",
+      "model_key": "sql-infodive",
+      "config_version": "sql-infodive-demo-v1",
+      "display_name": "sql-infodive",
+      "provider_display_name": "Infodive Local",
+      "description": "Modelo SQL local da Infodive via API compatível com OpenAI.",
+      "location": "local",
+      "status": "configured",
+      "enabled": true,
+      "targets": [],
+      "is_default_for": [],
+      "allowed_profiles": ["*"],
+      "capabilities": ["sql_generation"],
+      "adapter_type": "openai_compatible_chat",
+      "runtime": {
+        "base_url_ref_env": "OPENWEBUI_URL",
+        "credential_ref_env": "OPENWEBUI_API_KEY"
+      },
+      "timeout_ms": 180000,
+      "max_tokens": 8192,
+      "temperature": 0
+    }
+  ]
+}

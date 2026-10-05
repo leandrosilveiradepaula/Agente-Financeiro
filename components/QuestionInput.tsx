@@ -1,3 +1,4 @@
+import type { PublicLlmModel } from "@/lib/llm-provider-types";
 import { SendHorizontal } from "lucide-react";
 
 type QuestionInputProps = {
@@ -7,7 +8,12 @@ type QuestionInputProps = {
   disabledMessage?: string;
   isLoading: boolean;
   useSqlCache: boolean;
+  llmModels: PublicLlmModel[];
+  selectedLlmModelId: string;
+  llmModelsLoading?: boolean;
+  llmModelsError?: string;
   onQuestionChange: (value: string) => void;
+  onLlmModelChange: (value: string) => void;
   onUseSqlCacheChange: (value: boolean) => void;
   onSubmit: () => void;
 };
@@ -19,7 +25,12 @@ export function QuestionInput({
   disabledMessage,
   isLoading,
   useSqlCache,
+  llmModels,
+  selectedLlmModelId,
+  llmModelsLoading = false,
+  llmModelsError,
   onQuestionChange,
+  onLlmModelChange,
   onUseSqlCacheChange,
   onSubmit
 }: QuestionInputProps) {
@@ -48,6 +59,36 @@ export function QuestionInput({
           {disabledMessage}
         </div>
       ) : null}
+
+      <label className="mt-3 block rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+        <span className="block text-sm font-semibold text-ink">Modelo de IA</span>
+        <select
+          aria-label="Modelo de IA"
+          value={selectedLlmModelId}
+          disabled={disabled || llmModelsLoading}
+          onChange={(event) => onLlmModelChange(event.target.value)}
+          className="mt-2 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-ink disabled:cursor-not-allowed disabled:bg-slate-100"
+        >
+          <option value="">
+            {llmModelsLoading ? "Carregando modelos..." : "Selecione um modelo"}
+          </option>
+          {llmModels.map((model) => (
+            <option
+              key={model.id}
+              value={model.id}
+              disabled={!model.available_for_target}
+            >
+              {model.display_name} ({model.provider_display_name})
+              {!model.available_for_target ? " — configurado, ainda não habilitado" : ""}
+            </option>
+          ))}
+        </select>
+        {llmModelsError ? (
+          <span className="mt-2 block text-xs font-semibold text-rose-700">
+            {llmModelsError}
+          </span>
+        ) : null}
+      </label>
 
       <label className="mt-3 flex items-start justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
         <span className="min-w-0">
