@@ -59,6 +59,7 @@ import {
 } from "@/lib/history";
 import { normalizeWatsonResult } from "@/lib/watson-result-normalization";
 import { getAgentDisplayVersion } from "@/lib/agent-display-version";
+import type { LlmModelsResponse, PublicLlmModel } from "@/lib/llm-provider-types";
 import {
   createNewSqlGenerationResetState,
   isLatestInterfaceRequest
@@ -250,6 +251,10 @@ export default function Home() {
   const [executiveSummaryState, setExecutiveSummaryState] =
     useState<ExecutiveSummaryState | null>(null);
   const [useSqlCache, setUseSqlCache] = useState(false);
+  const [llmModels, setLlmModels] = useState<PublicLlmModel[]>([]);
+  const [selectedLlmModelId, setSelectedLlmModelId] = useState("");
+  const [llmModelsLoading, setLlmModelsLoading] = useState(false);
+  const [llmModelsError, setLlmModelsError] = useState("");
   const generationRequestRef = useRef(0);
 
   const canGenerateSqlByPolicy = Boolean(accountPolicy?.can_generate_sql);
@@ -272,8 +277,14 @@ export default function Home() {
     showInterfaceSettingsTool ||
     showDiagnosticsTool ||
     showBenchmarkTool;
+  const selectedLlmModel =
+    llmModels.find((model) => model.id === selectedLlmModelId) ?? null;
   const canPrepareGeneration =
-    question.trim().length > 0 && canGenerateSqlByPolicy && !policyLoading;
+    question.trim().length > 0 &&
+    canGenerateSqlByPolicy &&
+    !policyLoading &&
+    !llmModelsLoading &&
+    Boolean(selectedLlmModel?.available_for_target);
   const canExecuteWatson =
     !generation.isLoading &&
     !execution.isLoading &&
@@ -390,6 +401,59 @@ export default function Home() {
       setResultMode("auto");
     }
   }, [accountPolicy, resultMode]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadLlmModels() {
+      if (authState !== "unlocked" || !accountPolicy?.can_generate_sql) {
+        setLlmModels([]);
+        setSelectedLlmModelId("");
+        setLlmModelsError("");
+        return;
+      }
+
+      setLlmModelsLoading(true);
+      setLlmModelsError("");
+
+      try {
+        const response = await fetch("/api/llm-models?target=official", {
+          cache: "no-store"
+        });
+        const data = (await response.json()) as LlmModelsResponse;
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || "llm_models_load_failed");
+        }
+
+        if (!active) return;
+
+        setLlmModels(data.models);
+        const defaultId = data.default_selection
+          ? `${data.default_selection.provider_key}:${data.default_selection.model_key}:${data.default_selection.config_version}`
+          : "";
+        const defaultModel =
+          data.models.find((model) => model.id === defaultId && model.available_for_target) ??
+          data.models.find((model) => model.available_for_target) ??
+          null;
+        setSelectedLlmModelId(defaultModel?.id ?? "");
+      } catch {
+        if (active) {
+          setLlmModels([]);
+          setSelectedLlmModelId("");
+          setLlmModelsError("Não foi possível carregar os modelos de IA disponíveis.");
+        }
+      } finally {
+        if (active) setLlmModelsLoading(false);
+      }
+    }
+
+    loadLlmModels();
+
+    return () => {
+      active = false;
+    };
+  }, [accountPolicy?.can_generate_sql, authState]);
 
   useEffect(() => {
     let active = true;
@@ -817,6 +881,15 @@ export default function Home() {
       return;
     }
 
+    if (!selectedLlmModel?.available_for_target) {
+      setGeneration((current) => ({
+        ...current,
+        isLoading: false,
+        error: "Selecione um modelo de IA disponível para esta análise."
+      }));
+      return;
+    }
+
     const requestId = generationRequestRef.current + 1;
     generationRequestRef.current = requestId;
 
@@ -835,6 +908,11 @@ export default function Home() {
         },
         body: JSON.stringify({
           pergunta,
+          llm_selection: {
+            provider_key: selectedLlmModel.provider_key,
+            model_key: selectedLlmModel.model_key,
+            config_version: selectedLlmModel.config_version
+          },
           options: {
             use_sql_cache: useSqlCache
           }
@@ -1352,7 +1430,12 @@ export default function Home() {
               isLoading={generation.isLoading}
               question={question}
               useSqlCache={useSqlCache}
+              llmModels={llmModels}
+              selectedLlmModelId={selectedLlmModelId}
+              llmModelsLoading={llmModelsLoading}
+              llmModelsError={llmModelsError}
               onQuestionChange={setQuestion}
+              onLlmModelChange={setSelectedLlmModelId}
               onUseSqlCacheChange={updateUseSqlCache}
               onSubmit={generateSql}
             />
