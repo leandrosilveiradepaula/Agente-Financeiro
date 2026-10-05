@@ -5,7 +5,8 @@ import type {
   LlmLocation,
   LlmModelStatus,
   LlmSelection,
-  PublicLlmModel
+  PublicLlmModel,
+  SafeLlmRuntime
 } from "@/lib/llm-provider-types";
 
 type RuntimeConfig = {
@@ -57,6 +58,26 @@ function hasProfileAccess(entry: RegistryEntry, profile: string) {
 
 function supportsTarget(entry: RegistryEntry, target: LlmExecutionTarget) {
   return entry.enabled && entry.targets.includes(target);
+}
+
+function safeRuntime(entry: RegistryEntry): SafeLlmRuntime {
+  return {
+    adapter_type: entry.adapter_type,
+    model_key: entry.model_key,
+    config_version: entry.config_version,
+    timeout_ms:
+      typeof entry.timeout_ms === "number" && Number.isFinite(entry.timeout_ms)
+        ? entry.timeout_ms
+        : null,
+    max_tokens:
+      typeof entry.max_tokens === "number" && Number.isFinite(entry.max_tokens)
+        ? entry.max_tokens
+        : null,
+    temperature:
+      typeof entry.temperature === "number" && Number.isFinite(entry.temperature)
+        ? entry.temperature
+        : null
+  };
 }
 
 function publicModel(entry: RegistryEntry, target: LlmExecutionTarget): PublicLlmModel {
@@ -161,6 +182,7 @@ export function resolveLlmSelection(input: {
         model_key: requested.model_key,
         config_version: requested.config_version
       } satisfies LlmSelection,
+      runtime: safeRuntime(requested),
       source: "requested" as const
     };
   }
@@ -178,6 +200,7 @@ export function resolveLlmSelection(input: {
       model_key: selected.model_key,
       config_version: selected.config_version
     } satisfies LlmSelection,
+    runtime: safeRuntime(selected),
     source: "default" as const
   };
 }
