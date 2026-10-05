@@ -20,7 +20,16 @@ export async function GET(request: Request) {
   const { session, response } = await requireAgentSession();
 
   if (response || !session) {
-    return response;
+    return (
+      response ??
+      NextResponse.json(
+        {
+          success: false,
+          error: "unauthorized"
+        },
+        { status: 401 }
+      )
+    );
   }
 
   const policy = await enforceCanGenerateSql(session.userProfile);
