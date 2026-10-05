@@ -71,6 +71,7 @@ function publicModel(entry: RegistryEntry, target: LlmExecutionTarget): PublicLl
     location: entry.location,
     status: entry.status,
     is_default: entry.is_default_for.includes(target),
+    available_for_target: supportsTarget(entry, target),
     capabilities: [...entry.capabilities]
   };
 }
@@ -97,7 +98,7 @@ export function listAvailableLlmModels(input: {
   return document.models
     .filter(
       (entry) =>
-        supportsTarget(entry, input.target) &&
+        entry.enabled &&
         hasProfileAccess(entry, input.profile) &&
         entry.capabilities.includes("sql_generation")
     )
@@ -110,7 +111,8 @@ export function getDefaultLlmSelection(input: {
   profile: string;
 }): LlmSelection | null {
   const models = listAvailableLlmModels(input);
-  const selected = models.find((model) => model.is_default) ?? null;
+  const selected =
+    models.find((model) => model.is_default && model.available_for_target) ?? null;
 
   return selected
     ? {
