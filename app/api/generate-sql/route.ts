@@ -412,7 +412,7 @@ export async function POST(request: Request) {
     isRecord(body) ? asString(body.run_id).trim() || asString(body.agent_run_id).trim() : "";
   const requestOptions = isRecord(body) && isRecord(body.options) ? body.options : {};
   const useSqlCache = asBoolean(requestOptions.use_sql_cache) ?? false;
-  let resolvedLlmSelection;
+  let resolvedLlmSelection: ReturnType<typeof resolveLlmSelection>;
 
   try {
     const requestedLlmSelection = isRecord(body)
