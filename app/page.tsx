@@ -170,7 +170,13 @@ function friendlyPolicyError(code?: string, fallback = "Não foi possível concl
     profile_policy_not_found:
       "Não foi encontrada uma política ativa para o seu perfil.",
     no_allowed_tables_detected:
-      "Não foi possível validar as tabelas da consulta para o seu perfil."
+      "Não foi possível validar as tabelas da consulta para o seu perfil.",
+    llm_model_not_available:
+      "O modelo de IA selecionado ainda não está habilitado para este fluxo.",
+    invalid_llm_selection:
+      "A seleção do modelo de IA é inválida. Atualize a página e tente novamente.",
+    llm_default_model_not_configured:
+      "Não há um modelo de IA padrão habilitado para este ambiente."
   };
 
   return code ? messages[code] ?? fallback : fallback;
