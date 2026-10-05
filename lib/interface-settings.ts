@@ -9,6 +9,7 @@ export type InterfaceSettings = {
   showWhatsAppDemoPanel: boolean;
   defaultResultMode: "auto" | "manual";
   useSqlCache: boolean;
+  defaultLlmModelId: string;
 };
 
 const INTERFACE_SETTINGS_STORAGE_KEY = "ducklake-sql-agent-interface-settings";
@@ -23,7 +24,8 @@ const DEFAULT_INTERFACE_SETTINGS: InterfaceSettings = {
   showExecutiveReportHistory: true,
   showWhatsAppDemoPanel: true,
   defaultResultMode: "auto",
-  useSqlCache: false
+  useSqlCache: false,
+  defaultLlmModelId: ""
 };
 
 function clampNumber(value: unknown, min: number, max: number, fallback: number) {
@@ -78,7 +80,11 @@ function normalizeSettings(value: unknown): InterfaceSettings {
       DEFAULT_INTERFACE_SETTINGS.showWhatsAppDemoPanel
     ),
     defaultResultMode: record.defaultResultMode === "manual" ? "manual" : "auto",
-    useSqlCache: booleanValue(record.useSqlCache, DEFAULT_INTERFACE_SETTINGS.useSqlCache)
+    useSqlCache: booleanValue(record.useSqlCache, DEFAULT_INTERFACE_SETTINGS.useSqlCache),
+    defaultLlmModelId:
+      typeof record.defaultLlmModelId === "string"
+        ? record.defaultLlmModelId.trim().slice(0, 256)
+        : DEFAULT_INTERFACE_SETTINGS.defaultLlmModelId
   };
 }
 
