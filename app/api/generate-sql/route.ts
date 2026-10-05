@@ -16,6 +16,13 @@ import {
 } from "@/lib/llm-usage";
 import { getN8nGenerateSqlWebhookEndpoint } from "@/lib/n8n-endpoint";
 import {
+  getLlmRegistryEnvironment,
+  getLlmRegistryVersion,
+  LlmSelectionError,
+  parseLlmSelection,
+  resolveLlmSelection
+} from "@/lib/llm-provider-registry";
+import {
   buildPolicyDeniedResponse,
   enforceCanExecuteSql,
   enforceCanGenerateSql,
@@ -405,6 +412,31 @@ export async function POST(request: Request) {
     isRecord(body) ? asString(body.run_id).trim() || asString(body.agent_run_id).trim() : "";
   const requestOptions = isRecord(body) && isRecord(body.options) ? body.options : {};
   const useSqlCache = asBoolean(requestOptions.use_sql_cache) ?? false;
+  let resolvedLlmSelection;
+
+  try {
+    const requestedLlmSelection = isRecord(body)
+      ? parseLlmSelection(body.llm_selection)
+      : null;
+    resolvedLlmSelection = resolveLlmSelection({
+      environment: process.env.LLM_REGISTRY_ENVIRONMENT || getLlmRegistryEnvironment(),
+      target: "official",
+      profile: session.userProfile,
+      requested: requestedLlmSelection
+    });
+  } catch (error) {
+    const code =
+      error instanceof LlmSelectionError ? error.code : "llm_selection_resolution_failed";
+
+    logger.warn("generate_sql.llm_selection_rejected", {
+      requestId,
+      userId: session.userId,
+      userProfile: session.userProfile,
+      errorCode: code
+    });
+
+    return buildErrorResponse(code, 400);
+  }
 
   if (!pergunta) {
     logger.warn("generate_sql.empty_question", {
@@ -427,7 +459,9 @@ export async function POST(request: Request) {
       operation: "generate_sql",
       options: {
         use_sql_cache: useSqlCache
-      }
+      },
+      llm_selection: resolvedLlmSelection.selection,
+      llm_registry_version: getLlmRegistryVersion()
     }
   });
   const generatePolicy = await enforceCanGenerateSql(session.userProfile);
@@ -518,6 +552,8 @@ export async function POST(request: Request) {
       user_name: session.name,
       user_profile: session.userProfile,
       auth_source: "database_session",
+      llm_selection: resolvedLlmSelection.selection,
+      llm_registry_version: getLlmRegistryVersion(),
       options: {
         use_sql_cache: useSqlCache
       }
@@ -832,6 +868,7 @@ export async function POST(request: Request) {
       agent_run_id: agentRun.id,
       llm_provider: llmPersistence.llmProvider,
       llm_model: llmPersistence.llmModel,
+      llm_config_version: resolvedLlmSelection.selection.config_version,
       llm_prompt_tokens: llmPersistence.llmPromptTokens,
       llm_completion_tokens: llmPersistence.llmCompletionTokens,
       llm_total_tokens: llmPersistence.llmTotalTokens,
