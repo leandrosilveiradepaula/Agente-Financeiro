@@ -16,6 +16,7 @@ export type PublicLlmModel = LlmSelection & {
   location: LlmLocation;
   status: LlmModelStatus;
   is_default: boolean;
+  available_for_target: boolean;
   capabilities: string[];
 };
 
