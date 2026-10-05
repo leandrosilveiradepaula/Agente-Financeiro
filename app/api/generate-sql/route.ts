@@ -461,6 +461,7 @@ export async function POST(request: Request) {
         use_sql_cache: useSqlCache
       },
       llm_selection: resolvedLlmSelection.selection,
+      llm_runtime: resolvedLlmSelection.runtime,
       llm_registry_version: getLlmRegistryVersion()
     }
   });
@@ -553,6 +554,7 @@ export async function POST(request: Request) {
       user_profile: session.userProfile,
       auth_source: "database_session",
       llm_selection: resolvedLlmSelection.selection,
+      llm_runtime: resolvedLlmSelection.runtime,
       llm_registry_version: getLlmRegistryVersion(),
       options: {
         use_sql_cache: useSqlCache
