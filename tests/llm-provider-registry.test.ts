@@ -52,6 +52,10 @@ describe("LLM provider registry", () => {
 
     expect(resolved.source).toBe("default");
     expect(resolved.selection).toEqual(selection);
+    expect(resolved.runtime.adapter_type).toBe("gemini_generate_content");
+    expect(resolved.runtime.model_key).toBe(selection?.model_key);
+    expect(JSON.stringify(resolved.runtime)).not.toContain("credential_ref_env");
+    expect(JSON.stringify(resolved.runtime)).not.toContain("base_url_ref_env");
     expect(getLlmRegistryVersion()).toMatch(/^llm-registry-/);
   });
 
