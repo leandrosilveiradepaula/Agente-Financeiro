@@ -62,6 +62,7 @@ describe("DEMO commercial interface contract", () => {
     expect(routeSource).toContain("resolveLlmSelection");
     expect(routeSource).toContain("llm_registry_version");
     expect(routeSource).toContain("llm_selection: resolvedLlmSelection.selection");
+    expect(routeSource).toContain("llm_runtime: resolvedLlmSelection.runtime");
   });
 
   it("preserves explicit cache reuse without suggesting a fixed question lookup", async () => {
