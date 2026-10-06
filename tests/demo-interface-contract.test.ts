@@ -53,12 +53,12 @@ describe("DEMO commercial interface contract", () => {
     const questionSource = await readFile("components/QuestionInput.tsx", "utf8");
     const routeSource = await readFile("app/api/generate-sql/route.ts", "utf8");
 
-    expect(pageSource).toContain("/api/llm-models?target=official");
+    expect(pageSource).toContain("/api/llm-models?target=shadow");
     expect(pageSource).toContain("provider_key: selectedLlmModel.provider_key");
     expect(pageSource).toContain("model_key: selectedLlmModel.model_key");
     expect(pageSource).toContain("config_version: selectedLlmModel.config_version");
     expect(questionSource).toContain("Modelo de IA");
-    expect(questionSource).toContain("configurado, ainda não habilitado");
+    expect(questionSource).toContain("indisponível neste fluxo");
     expect(routeSource).toContain("resolveLlmSelection");
     expect(routeSource).toContain("llm_registry_version");
     expect(routeSource).toContain("llm_selection: resolvedLlmSelection.selection");
