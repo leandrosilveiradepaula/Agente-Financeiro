@@ -414,7 +414,7 @@ export async function POST(request: Request) {
   const useSqlCache = asBoolean(requestOptions.use_sql_cache) ?? false;
   const registryEnvironment =
     process.env.LLM_REGISTRY_ENVIRONMENT || getLlmRegistryEnvironment();
-  let requestedLlmSelection = null;
+  let requestedLlmSelection: ReturnType<typeof parseLlmSelection> = null;
 
   try {
     requestedLlmSelection = isRecord(body)
