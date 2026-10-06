@@ -285,7 +285,8 @@ describe("LangGraph shadow route behavior", () => {
         provider_key: "google_gemini",
         model_key: "gemini-2.5-flash",
         config_version: "gemini-demo-v1"
-      }
+      },
+      timeoutMs: 180000
     });
   });
 
@@ -325,7 +326,8 @@ describe("LangGraph shadow route behavior", () => {
           provider_key: "infodive_local",
           model_key: "sql-infodive",
           config_version: "sql-infodive-demo-v1"
-        }
+        },
+        timeoutMs: 180000
       })
     );
   });
