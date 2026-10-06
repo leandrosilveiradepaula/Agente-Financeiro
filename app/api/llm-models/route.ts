@@ -37,7 +37,6 @@ export async function GET(request: Request) {
   if (!policy.allowed) {
     return NextResponse.json(
       {
-        success: false,
         registry_version: getLlmRegistryVersion(),
         target: readTarget(request),
         models: [],
