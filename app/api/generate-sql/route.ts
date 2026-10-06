@@ -437,7 +437,8 @@ export async function POST(request: Request) {
   const officialLlmSelection = resolveLlmSelection({
     environment: registryEnvironment,
     target: "official",
-    profile: session.userProfile
+    profile: session.userProfile,
+    requested: requestedLlmSelection
   });
 
   let shadowLlmSelection: ReturnType<typeof resolveLlmSelection> | null = null;
@@ -582,7 +583,9 @@ export async function POST(request: Request) {
       auth_source: "database_session",
       options: {
         use_sql_cache: useSqlCache
-      }
+      },
+      llm_selection: officialLlmSelection.selection,
+      llm_registry_version: getLlmRegistryVersion()
     };
 
     const webhookResponse = await fetch(webhookUrl, {
