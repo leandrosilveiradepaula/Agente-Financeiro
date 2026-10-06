@@ -119,6 +119,10 @@ function isDemoInterfaceMode() {
   return process.env.AGENT_INTERFACE_MODE?.trim().toLowerCase() === "demo";
 }
 
+function isLangGraphOfficialViaN8n() {
+  return process.env.LANGGRAPH_OFFICIAL_VIA_N8N?.trim().toLowerCase() === "true";
+}
+
 function getPayloadRecord(raw: unknown) {
   const payload = Array.isArray(raw) ? raw[0] : raw;
   return isRecord(payload) ? payload : {};
@@ -441,9 +445,12 @@ export async function POST(request: Request) {
     requested: requestedLlmSelection
   });
 
+  const directShadowEnabled =
+    isLangGraphShadowEnabled() && !isLangGraphOfficialViaN8n();
+
   let shadowLlmSelection: ReturnType<typeof resolveLlmSelection> | null = null;
 
-  if (isLangGraphShadowEnabled()) {
+  if (directShadowEnabled) {
     try {
       shadowLlmSelection = resolveLlmSelection({
         environment: registryEnvironment,
@@ -911,7 +918,7 @@ export async function POST(request: Request) {
       estimated_savings_usd: llmPersistence.estimatedSavingsUsd
     };
 
-    if (isLangGraphShadowEnabled()) {
+    if (directShadowEnabled) {
       const principal = buildLangGraphShadowPrincipal(session);
 
       after(async () => {
