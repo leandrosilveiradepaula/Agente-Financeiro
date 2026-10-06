@@ -4,7 +4,7 @@ import type { LlmSelection } from "@/lib/llm-provider-types";
 const DEFAULT_LANGGRAPH_BASE_URL = "http://127.0.0.1:8000";
 const DEFAULT_SHADOW_TIMEOUT_MS = 1500;
 const MIN_SHADOW_TIMEOUT_MS = 100;
-const MAX_SHADOW_TIMEOUT_MS = 10000;
+const MAX_SHADOW_TIMEOUT_MS = 300000;
 
 type ShadowEnv = Record<string, string | undefined>;
 
@@ -41,6 +41,7 @@ export type DispatchGenerateShadowInput = {
   requestId: string;
   agentVersion?: string;
   llmSelection?: LlmSelection | null;
+  timeoutMs?: number | null;
 };
 
 export type DispatchExecuteApprovedShadowInput = {
@@ -99,7 +100,8 @@ export async function dispatchLangGraphGenerateShadow(
         now: options.now
       })
     },
-    options
+    options,
+    input.timeoutMs
   );
 }
 
@@ -129,7 +131,8 @@ export async function dispatchLangGraphExecuteApprovedShadow(
 async function dispatchLangGraphShadow(
   path: string,
   payload: unknown,
-  options: LangGraphShadowClientOptions
+  options: LangGraphShadowClientOptions,
+  modelTimeoutMs?: number | null
 ): Promise<LangGraphShadowDispatchResult> {
   const env = options.env ?? process.env;
 
@@ -148,7 +151,10 @@ async function dispatchLangGraphShadow(
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), getShadowTimeoutMs(env));
+  const timeout = setTimeout(
+    () => controller.abort(),
+    getShadowTimeoutMs(env, modelTimeoutMs)
+  );
   const fetchImpl = options.fetchImpl ?? fetch;
 
   try {
@@ -234,16 +240,20 @@ function getS2sToken(env: ShadowEnv): string {
   return token;
 }
 
-function getShadowTimeoutMs(env: ShadowEnv): number {
+function getShadowTimeoutMs(
+  env: ShadowEnv,
+  modelTimeoutMs?: number | null
+): number {
   const rawTimeout = env.LANGGRAPH_SHADOW_TIMEOUT_MS?.trim();
-  const parsedTimeout = rawTimeout ? Number.parseInt(rawTimeout, 10) : DEFAULT_SHADOW_TIMEOUT_MS;
-
-  if (!Number.isFinite(parsedTimeout)) {
-    return DEFAULT_SHADOW_TIMEOUT_MS;
-  }
+  const envTimeout = rawTimeout ? Number.parseInt(rawTimeout, 10) : Number.NaN;
+  const selectedTimeout = Number.isFinite(envTimeout)
+    ? envTimeout
+    : Number.isFinite(modelTimeoutMs)
+      ? Number(modelTimeoutMs)
+      : DEFAULT_SHADOW_TIMEOUT_MS;
 
   return Math.min(
-    Math.max(parsedTimeout, MIN_SHADOW_TIMEOUT_MS),
+    Math.max(selectedTimeout, MIN_SHADOW_TIMEOUT_MS),
     MAX_SHADOW_TIMEOUT_MS
   );
 }

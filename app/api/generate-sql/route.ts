@@ -919,7 +919,8 @@ export async function POST(request: Request) {
             principal,
             requestId,
             agentVersion: AGENT_VERSION,
-            llmSelection: shadowLlmSelection?.selection ?? null
+            llmSelection: shadowLlmSelection?.selection ?? null,
+            timeoutMs: shadowLlmSelection?.model.timeout_ms ?? null
           });
 
           if (shadowResult.status !== "sent" && shadowResult.status !== "disabled") {
