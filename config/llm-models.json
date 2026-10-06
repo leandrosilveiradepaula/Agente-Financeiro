@@ -1,5 +1,5 @@
 {
-  "registry_version": "llm-registry-2026-10-05.1",
+  "registry_version": "llm-registry-2026-10-06.1",
   "environment": "demo",
   "models": [
     {
@@ -8,14 +8,24 @@
       "config_version": "gemini-demo-v1",
       "display_name": "Gemini 2.5 Flash",
       "provider_display_name": "Google Gemini",
-      "description": "Modelo cloud atualmente usado pelo fluxo oficial da DEMO.",
+      "description": "Modelo cloud disponível para geração SQL via LangGraph.",
       "location": "cloud",
       "status": "online",
       "enabled": true,
-      "targets": ["official", "shadow"],
-      "is_default_for": ["official", "shadow"],
-      "allowed_profiles": ["*"],
-      "capabilities": ["sql_generation"],
+      "targets": [
+        "official",
+        "shadow"
+      ],
+      "is_default_for": [
+        "official",
+        "shadow"
+      ],
+      "allowed_profiles": [
+        "*"
+      ],
+      "capabilities": [
+        "sql_generation"
+      ],
       "adapter_type": "gemini_generate_content",
       "runtime": {
         "credential_ref_env": "GEMINI_API_KEY"
@@ -32,12 +42,19 @@
       "provider_display_name": "Infodive Local",
       "description": "Modelo SQL local da Infodive via API compatível com OpenAI.",
       "location": "local",
-      "status": "configured",
+      "status": "online",
       "enabled": true,
-      "targets": ["shadow"],
+      "targets": [
+        "official",
+        "shadow"
+      ],
       "is_default_for": [],
-      "allowed_profiles": ["*"],
-      "capabilities": ["sql_generation"],
+      "allowed_profiles": [
+        "*"
+      ],
+      "capabilities": [
+        "sql_generation"
+      ],
       "adapter_type": "openai_compatible_chat",
       "runtime": {
         "base_url_ref_env": "OPENWEBUI_URL",

@@ -21,7 +21,7 @@ describe("LLM provider registry", () => {
     expect(models.some((model) => model.available_for_target)).toBe(true);
     const localModel = models.find((model) => model.model_key === "sql-infodive");
     expect(localModel).toBeDefined();
-    expect(localModel?.available_for_target).toBe(false);
+    expect(localModel?.available_for_target).toBe(true);
   });
 
   it("keeps runtime connection references out of the public model shape", () => {
@@ -55,19 +55,24 @@ describe("LLM provider registry", () => {
     expect(getLlmRegistryVersion()).toMatch(/^llm-registry-/);
   });
 
-  it("rejects unavailable requested models instead of silently falling back", () => {
-    expect(() =>
-      resolveLlmSelection({
-        environment: getLlmRegistryEnvironment(),
-        target: "official",
-        profile: "admin",
-        requested: {
-          provider_key: "infodive_local",
-          model_key: "sql-infodive",
-          config_version: "sql-infodive-demo-v1"
-        }
-      })
-    ).toThrow("llm_model_not_available");
+  it("resolves an explicitly requested local model for the official path", () => {
+    const resolved = resolveLlmSelection({
+      environment: getLlmRegistryEnvironment(),
+      target: "official",
+      profile: "admin",
+      requested: {
+        provider_key: "infodive_local",
+        model_key: "sql-infodive",
+        config_version: "sql-infodive-demo-v1"
+      }
+    });
+
+    expect(resolved.source).toBe("requested");
+    expect(resolved.selection).toEqual({
+      provider_key: "infodive_local",
+      model_key: "sql-infodive",
+      config_version: "sql-infodive-demo-v1"
+    });
   });
 
   it("requires provider, model and config version in explicit selections", () => {
