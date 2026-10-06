@@ -1,4 +1,5 @@
 import type { AgentSession } from "@/lib/auth/auth-types";
+import type { LlmSelection } from "@/lib/llm-provider-types";
 
 const DEFAULT_LANGGRAPH_BASE_URL = "http://127.0.0.1:8000";
 const DEFAULT_SHADOW_TIMEOUT_MS = 1500;
@@ -39,6 +40,7 @@ export type DispatchGenerateShadowInput = {
   principal: LangGraphShadowPrincipal;
   requestId: string;
   agentVersion?: string;
+  llmSelection?: LlmSelection | null;
 };
 
 export type DispatchExecuteApprovedShadowInput = {
@@ -88,6 +90,7 @@ export async function dispatchLangGraphGenerateShadow(
       agent_run_id: input.agentRunId,
       question: input.question,
       principal: input.principal,
+      ...(input.llmSelection ? { llm_selection: input.llmSelection } : {}),
       correlation_metadata: buildCorrelationMetadata({
         event: "generate",
         route: "/api/generate-sql",
