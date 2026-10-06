@@ -135,6 +135,31 @@ describe("LangGraph shadow client", () => {
     });
   });
 
+  it("sends the selected LLM only in the shadow payload", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(okResponse());
+
+    await dispatchLangGraphGenerateShadow(
+      {
+        ...baseInput,
+        llmSelection: {
+          provider_key: "infodive_local",
+          model_key: "sql-infodive",
+          config_version: "sql-infodive-demo-v1"
+        }
+      },
+      {
+        env: enabledEnv,
+        fetchImpl
+      }
+    );
+
+    expect(readRequestBody(fetchImpl).llm_selection).toEqual({
+      provider_key: "infodive_local",
+      model_key: "sql-infodive",
+      config_version: "sql-infodive-demo-v1"
+    });
+  });
+
   it("uses the generate endpoint", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(okResponse());
 
