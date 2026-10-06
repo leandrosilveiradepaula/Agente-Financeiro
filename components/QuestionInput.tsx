@@ -61,7 +61,10 @@ export function QuestionInput({
       ) : null}
 
       <label className="mt-3 block rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
-        <span className="block text-sm font-semibold text-ink">Modelo de IA em avaliação</span>
+        <span className="block text-sm font-semibold text-ink">Modelo de IA em avaliação (Shadow)</span>
+        <span className="mt-1 block text-xs leading-5 text-steel">
+          O fluxo oficial continua no n8n. Este modelo roda em paralelo no LangGraph para comparação.
+        </span>
         <select
           aria-label="Modelo de IA"
           value={selectedLlmModelId}
