@@ -423,7 +423,7 @@ export default function Home() {
       setLlmModelsError("");
 
       try {
-        const response = await fetch("/api/llm-models?target=official", {
+        const response = await fetch("/api/llm-models?target=shadow", {
           cache: "no-store"
         });
         const data = (await response.json()) as LlmModelsResponse;
