@@ -115,6 +115,7 @@ export function InterfaceSettingsPanel({
           <p className="text-sm font-semibold text-blue-900">Configuração de IA</p>
           <p className="mt-1 text-xs leading-5 text-blue-800">
             Escolha o modelo padrão entre os modelos autorizados para o seu perfil.
+            Durante a homologação Shadow, essa escolha é avaliada pelo LangGraph e não altera a resposta oficial do n8n.
           </p>
           <label className="mt-3 block">
             <span className="text-xs font-semibold uppercase text-slate-500">
