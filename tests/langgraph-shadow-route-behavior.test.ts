@@ -280,8 +280,54 @@ describe("LangGraph shadow route behavior", () => {
         profile: "admin"
       },
       requestId: expect.any(String),
-      agentVersion: expect.any(String)
+      agentVersion: expect.any(String),
+      llmSelection: {
+        provider_key: "google_gemini",
+        model_key: "gemini-2.5-flash",
+        config_version: "gemini-demo-v1"
+      }
     });
+  });
+
+  it("does not send LLM selection to the official n8n webhook", async () => {
+    resetRouteMocks();
+    routeMocks.isLangGraphShadowEnabled.mockReturnValue(true);
+    const fetchImpl = mockOfficialGenerateFetch();
+    vi.stubGlobal("fetch", fetchImpl);
+
+    const { POST } = await import("@/app/api/generate-sql/route");
+    await POST(
+      new Request("http://localhost/api/generate-sql", {
+        method: "POST",
+        body: JSON.stringify({
+          pergunta: "Qual foi o resultado por marca?",
+          llm_selection: {
+            provider_key: "infodive_local",
+            model_key: "sql-infodive",
+            config_version: "sql-infodive-demo-v1"
+          }
+        })
+      })
+    );
+
+    const officialInit = fetchImpl.mock.calls[0][1] as RequestInit;
+    const officialBody = JSON.parse(String(officialInit.body));
+
+    expect(officialBody).not.toHaveProperty("llm_selection");
+    expect(officialBody).not.toHaveProperty("llm_registry_version");
+
+    expect(routeMocks.afterCallbacks).toHaveLength(1);
+    await routeMocks.afterCallbacks[0]();
+
+    expect(routeMocks.dispatchLangGraphGenerateShadow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        llmSelection: {
+          provider_key: "infodive_local",
+          model_key: "sql-infodive",
+          config_version: "sql-infodive-demo-v1"
+        }
+      })
+    );
   });
 
   it("does not alter generate response when shadow reports failure or timeout", async () => {
