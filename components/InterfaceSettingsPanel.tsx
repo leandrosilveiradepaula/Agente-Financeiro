@@ -3,12 +3,14 @@
 import { RotateCcw, Save, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { InterfaceSettings } from "@/lib/interface-settings";
+import type { PublicLlmModel } from "@/lib/llm-provider-types";
 import { getDefaultInterfaceSettings } from "@/lib/interface-settings";
 
 type InterfaceSettingsPanelProps = {
   settings: InterfaceSettings;
   onSaveSettings: (settings: InterfaceSettings) => void;
   onResetSettings: () => void;
+  llmModels: PublicLlmModel[];
 };
 
 function numericValue(value: number, min: number, max: number) {
@@ -18,7 +20,8 @@ function numericValue(value: number, min: number, max: number) {
 export function InterfaceSettingsPanel({
   settings,
   onSaveSettings,
-  onResetSettings
+  onResetSettings,
+  llmModels
 }: InterfaceSettingsPanelProps) {
   const [draft, setDraft] = useState<InterfaceSettings>(settings);
   const [message, setMessage] = useState("");
@@ -107,6 +110,35 @@ export function InterfaceSettingsPanel({
             className="mt-1 h-9 w-full rounded-md border border-slate-200 px-2 text-sm text-ink shadow-sm focus:border-blue-400 focus:outline-none"
           />
         </label>
+
+        <div className="rounded-md border border-blue-200 bg-blue-50 p-3">
+          <p className="text-sm font-semibold text-blue-900">Configuração de IA</p>
+          <p className="mt-1 text-xs leading-5 text-blue-800">
+            Escolha o modelo padrão entre os modelos autorizados para o seu perfil.
+          </p>
+          <label className="mt-3 block">
+            <span className="text-xs font-semibold uppercase text-slate-500">
+              Modelo de IA padrão
+            </span>
+            <select
+              value={draft.defaultLlmModelId}
+              onChange={(event) => update("defaultLlmModelId", event.target.value)}
+              className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm text-ink shadow-sm focus:border-blue-400 focus:outline-none"
+            >
+              <option value="">Padrão definido pelo ambiente</option>
+              {llmModels.map((model) => (
+                <option
+                  key={model.id}
+                  value={model.id}
+                  disabled={!model.available_for_target}
+                >
+                  {model.display_name} ({model.provider_display_name})
+                  {!model.available_for_target ? " — indisponível neste fluxo" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
 
         <label className="block">
           <span className="text-xs font-semibold uppercase text-slate-500">

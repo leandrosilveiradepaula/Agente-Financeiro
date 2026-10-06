@@ -64,6 +64,19 @@ describe("DEMO commercial interface contract", () => {
     expect(routeSource).toContain("llm_selection: resolvedLlmSelection.selection");
   });
 
+  it("lets the client persist a preferred authorized LLM", async () => {
+    const pageSource = await readFile("app/page.tsx", "utf8");
+    const settingsSource = await readFile("components/InterfaceSettingsPanel.tsx", "utf8");
+    const storageSource = await readFile("lib/interface-settings.ts", "utf8");
+
+    expect(settingsSource).toContain("Configuração de IA");
+    expect(settingsSource).toContain("Modelo de IA padrão");
+    expect(settingsSource).toContain("model.available_for_target");
+    expect(storageSource).toContain("defaultLlmModelId");
+    expect(pageSource).toContain("interfaceSettings.defaultLlmModelId");
+    expect(pageSource).toContain("preferredModel");
+  });
+
   it("preserves explicit cache reuse without suggesting a fixed question lookup", async () => {
     const source = await readFile("components/QuestionInput.tsx", "utf8");
 
