@@ -11,6 +11,15 @@ import type {
 
 type DiagnosticStatus = "ok" | "attention" | "missing";
 
+type OrchestrationDiagnostics = {
+  n8n_generate_sql?: {
+    configured?: boolean;
+    path_suffix?: string | null;
+    fingerprint?: string | null;
+  };
+  langgraph_shadow_enabled?: boolean;
+};
+
 type AgentDiagnosticsPanelProps = {
   interfaceVersion: string;
   baseline: string;
@@ -118,6 +127,8 @@ export function AgentDiagnosticsPanel({
   onClearLocalErrors
 }: AgentDiagnosticsPanelProps) {
   const [copied, setCopied] = useState(false);
+  const [orchestration, setOrchestration] = useState<OrchestrationDiagnostics | null>(null);
+  const [orchestrationError, setOrchestrationError] = useState("");
   const [copyError, setCopyError] = useState("");
   const [localStorageStatus, setLocalStorageStatus] = useState<DiagnosticStatus>("attention");
   const response = execution.response;
@@ -130,6 +141,41 @@ export function AgentDiagnosticsPanel({
     generation.response?.detected_intent ||
     "Não informada";
   const hasLocalErrors = Boolean(generation.error || execution.error);
+  useEffect(() => {
+    let active = true;
+
+    async function loadOrchestrationDiagnostics() {
+      try {
+        const response = await fetch("/api/admin/orchestration-diagnostics", {
+          cache: "no-store"
+        });
+        const data = (await response.json()) as OrchestrationDiagnostics & {
+          success?: boolean;
+        };
+
+        if (!response.ok || !data.success) {
+          throw new Error("orchestration_diagnostics_unavailable");
+        }
+
+        if (active) {
+          setOrchestration(data);
+          setOrchestrationError("");
+        }
+      } catch {
+        if (active) {
+          setOrchestration(null);
+          setOrchestrationError("Diagnóstico de orquestração indisponível.");
+        }
+      }
+    }
+
+    loadOrchestrationDiagnostics();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   useEffect(() => {
     try {
       const key = "__ducklake_diag_test__";
@@ -186,7 +232,11 @@ export function AgentDiagnosticsPanel({
     `Histórico de queries: ${queryHistoryCount}`,
     `Histórico de relatórios: ${executiveReportHistoryCount}`,
     `Erro geração: ${generation.error || "nenhum"}`,
-    `Erro execução: ${execution.error || "nenhum"}`
+    `Erro execução: ${execution.error || "nenhum"}`,
+    `n8n geração configurado: ${String(orchestration?.n8n_generate_sql?.configured ?? "não informado")}`,
+    `n8n webhook path: ${orchestration?.n8n_generate_sql?.path_suffix || "não informado"}`,
+    `n8n endpoint fingerprint: ${orchestration?.n8n_generate_sql?.fingerprint || "não informado"}`,
+    `LangGraph Shadow habilitado: ${String(orchestration?.langgraph_shadow_enabled ?? "não informado")}`
   ].join("\n");
 
   async function copyDiagnostics() {
@@ -264,6 +314,28 @@ export function AgentDiagnosticsPanel({
             label="execution_time_ms"
             status={metadata.execution_time_ms !== undefined ? "ok" : "missing"}
           />
+        </div>
+
+
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs font-semibold uppercase text-slate-500">Orquestração runtime</p>
+          <div className="mt-2 grid gap-1 text-xs text-steel">
+            <span>
+              n8n geração: {orchestration?.n8n_generate_sql?.configured ? "configurado" : "não confirmado"}
+            </span>
+            <span>
+              Webhook path: {orchestration?.n8n_generate_sql?.path_suffix || "não informado"}
+            </span>
+            <span>
+              Fingerprint: {orchestration?.n8n_generate_sql?.fingerprint || "não informado"}
+            </span>
+            <span>
+              LangGraph Shadow: {orchestration?.langgraph_shadow_enabled ? "habilitado" : "desabilitado"}
+            </span>
+          </div>
+          {orchestrationError ? (
+            <p className="mt-2 text-xs font-medium text-amber-700">{orchestrationError}</p>
+          ) : null}
         </div>
 
         <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
