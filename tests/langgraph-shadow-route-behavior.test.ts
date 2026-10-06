@@ -260,6 +260,27 @@ describe("LangGraph shadow route behavior", () => {
     expect(routeMocks.dispatchLangGraphGenerateShadow).not.toHaveBeenCalled();
   });
 
+  it("does not schedule direct shadow when LangGraph is already official via n8n", async () => {
+    resetRouteMocks();
+    routeMocks.isLangGraphShadowEnabled.mockReturnValue(true);
+    vi.stubEnv("LANGGRAPH_OFFICIAL_VIA_N8N", "true");
+    vi.stubGlobal("fetch", mockOfficialGenerateFetch());
+
+    const { POST } = await import("@/app/api/generate-sql/route");
+    const response = await POST(
+      new Request("http://localhost/api/generate-sql", {
+        method: "POST",
+        body: JSON.stringify({
+          pergunta: "Qual foi o resultado por marca?"
+        })
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(routeMocks.afterCallbacks).toHaveLength(0);
+    expect(routeMocks.dispatchLangGraphGenerateShadow).not.toHaveBeenCalled();
+  });
+
   it("schedules generate shadow with agent_run_id, question, and sanitized principal", async () => {
     const { body } = await readGenerateResponse(true);
 
