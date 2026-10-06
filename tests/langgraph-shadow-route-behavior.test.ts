@@ -290,7 +290,7 @@ describe("LangGraph shadow route behavior", () => {
     });
   });
 
-  it("does not send LLM selection to the official n8n webhook", async () => {
+  it("forwards the resolved LLM selection through the official n8n webhook", async () => {
     resetRouteMocks();
     routeMocks.isLangGraphShadowEnabled.mockReturnValue(true);
     const fetchImpl = mockOfficialGenerateFetch();
@@ -314,8 +314,12 @@ describe("LangGraph shadow route behavior", () => {
     const officialInit = fetchImpl.mock.calls[0][1] as RequestInit;
     const officialBody = JSON.parse(String(officialInit.body));
 
-    expect(officialBody).not.toHaveProperty("llm_selection");
-    expect(officialBody).not.toHaveProperty("llm_registry_version");
+    expect(officialBody.llm_selection).toEqual({
+      provider_key: "infodive_local",
+      model_key: "sql-infodive",
+      config_version: "sql-infodive-demo-v1"
+    });
+    expect(officialBody.llm_registry_version).toMatch(/^llm-registry-/);
 
     expect(routeMocks.afterCallbacks).toHaveLength(1);
     await routeMocks.afterCallbacks[0]();
