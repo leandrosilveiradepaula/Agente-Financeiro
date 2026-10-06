@@ -61,7 +61,7 @@ export function QuestionInput({
       ) : null}
 
       <label className="mt-3 block rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
-        <span className="block text-sm font-semibold text-ink">Modelo de IA</span>
+        <span className="block text-sm font-semibold text-ink">Modelo de IA em avaliação</span>
         <select
           aria-label="Modelo de IA"
           value={selectedLlmModelId}
@@ -79,7 +79,7 @@ export function QuestionInput({
               disabled={!model.available_for_target}
             >
               {model.display_name} ({model.provider_display_name})
-              {!model.available_for_target ? " — configurado, ainda não habilitado" : ""}
+              {!model.available_for_target ? " — indisponível neste fluxo" : ""}
             </option>
           ))}
         </select>

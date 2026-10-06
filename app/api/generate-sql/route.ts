@@ -412,23 +412,19 @@ export async function POST(request: Request) {
     isRecord(body) ? asString(body.run_id).trim() || asString(body.agent_run_id).trim() : "";
   const requestOptions = isRecord(body) && isRecord(body.options) ? body.options : {};
   const useSqlCache = asBoolean(requestOptions.use_sql_cache) ?? false;
-  let resolvedLlmSelection: ReturnType<typeof resolveLlmSelection>;
+  const registryEnvironment =
+    process.env.LLM_REGISTRY_ENVIRONMENT || getLlmRegistryEnvironment();
+  let requestedLlmSelection: ReturnType<typeof parseLlmSelection> = null;
 
   try {
-    const requestedLlmSelection = isRecord(body)
+    requestedLlmSelection = isRecord(body)
       ? parseLlmSelection(body.llm_selection)
       : null;
-    resolvedLlmSelection = resolveLlmSelection({
-      environment: process.env.LLM_REGISTRY_ENVIRONMENT || getLlmRegistryEnvironment(),
-      target: "official",
-      profile: session.userProfile,
-      requested: requestedLlmSelection
-    });
   } catch (error) {
     const code =
       error instanceof LlmSelectionError ? error.code : "llm_selection_resolution_failed";
 
-    logger.warn("generate_sql.llm_selection_rejected", {
+    logger.warn("generate_sql.llm_selection_invalid", {
       requestId,
       userId: session.userId,
       userProfile: session.userProfile,
@@ -436,6 +432,35 @@ export async function POST(request: Request) {
     });
 
     return buildErrorResponse(code, 400);
+  }
+
+  const officialLlmSelection = resolveLlmSelection({
+    environment: registryEnvironment,
+    target: "official",
+    profile: session.userProfile
+  });
+
+  let shadowLlmSelection: ReturnType<typeof resolveLlmSelection> | null = null;
+
+  if (isLangGraphShadowEnabled()) {
+    try {
+      shadowLlmSelection = resolveLlmSelection({
+        environment: registryEnvironment,
+        target: "shadow",
+        profile: session.userProfile,
+        requested: requestedLlmSelection
+      });
+    } catch (error) {
+      logger.warn("generate_sql.shadow_llm_selection_unavailable", {
+        requestId,
+        userId: session.userId,
+        userProfile: session.userProfile,
+        errorCode:
+          error instanceof LlmSelectionError
+            ? error.code
+            : "llm_selection_resolution_failed"
+      });
+    }
   }
 
   if (!pergunta) {
@@ -460,7 +485,10 @@ export async function POST(request: Request) {
       options: {
         use_sql_cache: useSqlCache
       },
-      llm_selection: resolvedLlmSelection.selection,
+      llm_selection: {
+        official: officialLlmSelection.selection,
+        shadow: shadowLlmSelection?.selection ?? requestedLlmSelection
+      },
       llm_registry_version: getLlmRegistryVersion()
     }
   });
@@ -552,8 +580,6 @@ export async function POST(request: Request) {
       user_name: session.name,
       user_profile: session.userProfile,
       auth_source: "database_session",
-      llm_selection: resolvedLlmSelection.selection,
-      llm_registry_version: getLlmRegistryVersion(),
       options: {
         use_sql_cache: useSqlCache
       }
@@ -868,7 +894,7 @@ export async function POST(request: Request) {
       agent_run_id: agentRun.id,
       llm_provider: llmPersistence.llmProvider,
       llm_model: llmPersistence.llmModel,
-      llm_config_version: resolvedLlmSelection.selection.config_version,
+      llm_config_version: officialLlmSelection.selection.config_version,
       llm_prompt_tokens: llmPersistence.llmPromptTokens,
       llm_completion_tokens: llmPersistence.llmCompletionTokens,
       llm_total_tokens: llmPersistence.llmTotalTokens,
@@ -892,7 +918,8 @@ export async function POST(request: Request) {
             question: pergunta,
             principal,
             requestId,
-            agentVersion: AGENT_VERSION
+            agentVersion: AGENT_VERSION,
+            llmSelection: shadowLlmSelection?.selection ?? null
           });
 
           if (shadowResult.status !== "sent" && shadowResult.status !== "disabled") {
