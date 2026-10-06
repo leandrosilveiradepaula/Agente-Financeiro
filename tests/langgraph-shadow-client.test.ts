@@ -48,7 +48,8 @@ function readRequestBody(fetchImpl: ReturnType<typeof vi.fn>) {
 
 async function expectShadowTimeoutDelay(
   rawTimeout: string | undefined,
-  expectedDelayMs: number
+  expectedDelayMs: number,
+  modelTimeoutMs?: number
 ) {
   vi.useFakeTimers();
   const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
@@ -70,10 +71,16 @@ async function expectShadowTimeoutDelay(
   );
 
   try {
-    const resultPromise = dispatchLangGraphGenerateShadow(baseInput, {
-      env,
-      fetchImpl
-    });
+    const resultPromise = dispatchLangGraphGenerateShadow(
+      {
+        ...baseInput,
+        ...(modelTimeoutMs !== undefined ? { timeoutMs: modelTimeoutMs } : {})
+      },
+      {
+        env,
+        fetchImpl
+      }
+    );
 
     expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), expectedDelayMs);
 
@@ -321,6 +328,14 @@ describe("LangGraph shadow client", () => {
       await expectShadowTimeoutDelay(rawTimeout, expectedDelayMs);
     }
   );
+
+  it("uses the selected model timeout when env override is absent", async () => {
+    await expectShadowTimeoutDelay(undefined, 180000, 180000);
+  });
+
+  it("prefers explicit env timeout over selected model timeout", async () => {
+    await expectShadowTimeoutDelay("2500", 2500, 180000);
+  });
 
   it("handles HTTP 500 without throwing", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(statusResponse(500));
