@@ -313,7 +313,7 @@ describe("LangGraph shadow client", () => {
     ["zero", "0", 100],
     ["negative", "-1", 100],
     ["below minimum", "50", 100],
-    ["above maximum", "30000", 10000],
+    ["above maximum", "600000", 300000],
     ["inside range", "2500", 2500]
   ])(
     "uses the expected real timer delay when LANGGRAPH_SHADOW_TIMEOUT_MS is %s",
