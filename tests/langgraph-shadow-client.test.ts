@@ -133,7 +133,7 @@ describe("LangGraph shadow client", () => {
     const env = {...enabledEnv, LANGGRAPH_SHADOW_TRANSPORT:"n8n_relay",
       LANGGRAPH_SHADOW_RELAY_GENERATE_URL:"https://relay.example.test/webhook/shadow",
       LANGGRAPH_SHADOW_RELAY_TOKEN:"relay-token"};
-    for (const body of ["{}", "{\\\"relay_status\\\":\\\"accepted\\\",\\\"agent_run_id\\\":\\\"wrong\\\"}", ""]) {
+    for (const body of ["{}", JSON.stringify({relay_status:"accepted",agent_run_id:"wrong"}), ""]) {
       const fetchImpl=vi.fn().mockResolvedValue(okResponse(body));
       const result=await dispatchLangGraphGenerateShadow(baseInput,{env,fetchImpl});
       expect(result.status).toBe("invalid_response");
