@@ -70,6 +70,26 @@ export function isLangGraphShadowEnabled(env: ShadowEnv = process.env): boolean 
   return env.LANGGRAPH_SHADOW_ENABLED?.trim().toLowerCase() === "true";
 }
 
+// Configuration readiness only; not proof that a request has reached LangGraph.
+export function isLangGraphShadowDispatchConfigured(env: ShadowEnv = process.env): boolean {
+  if (!isLangGraphShadowEnabled(env)) return false;
+  if (env.LANGGRAPH_OFFICIAL_VIA_N8N?.trim().toLowerCase() === "true") return false;
+  if (!env.LANGGRAPH_S2S_TOKEN?.trim()) return false;
+  const raw = env.LANGGRAPH_INTERNAL_BASE_URL?.trim();
+  if (!raw) return false;
+  try {
+    const url = new URL(raw);
+    if (!(["http:", "https:"].includes(url.protocol)) ||
+        !url.hostname || url.username || url.password || url.search || url.hash ||
+        (url.pathname !== "/" && url.pathname !== "")) return false;
+    if (env.VERCEL === "1" && (url.protocol !== "https:" ||
+        ["localhost", "127.0.0.1", "::1"].includes(url.hostname))) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function buildLangGraphShadowPrincipal(
   session: AgentSession
 ): LangGraphShadowPrincipal {
