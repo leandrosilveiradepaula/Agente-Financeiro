@@ -11,6 +11,7 @@ import type {
 type RuntimeConfig = {
   base_url_ref_env?: string;
   credential_ref_env?: string;
+  http_host_ref_env?: string;
 };
 
 type RegistryEntry = LlmSelection & {
