@@ -166,6 +166,7 @@ async function dispatchLangGraphShadow(
       },
       body: JSON.stringify(payload),
       cache: "no-store",
+      redirect: "error",
       signal: controller.signal
     });
 
@@ -179,12 +180,19 @@ async function dispatchLangGraphShadow(
 
     const text = await response.text();
 
-    if (text) {
-      try {
-        JSON.parse(text);
-      } catch {
-        return sanitizedFailure("invalid_response");
-      }
+    let parsed: unknown;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      return sanitizedFailure("invalid_response");
+    }
+
+    if (target.relay && (
+      !isRecord(parsed) ||
+      parsed.relay_status !== "accepted" ||
+      parsed.agent_run_id !== (payload as { agent_run_id?: string }).agent_run_id
+    )) {
+      return sanitizedFailure("invalid_response");
     }
 
     return {
@@ -225,7 +233,11 @@ function buildCorrelationMetadata({
   };
 }
 
-type DispatchTarget = { url: string; token: string };
+type DispatchTarget = { url: string; token: string; relay: boolean };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 
 function dispatchTarget(env: ShadowEnv, path: string): DispatchTarget | null {
   const transport = env.LANGGRAPH_SHADOW_TRANSPORT?.trim() || "direct";
@@ -239,7 +251,7 @@ function dispatchTarget(env: ShadowEnv, path: string): DispatchTarget | null {
     const token = env.LANGGRAPH_SHADOW_RELAY_TOKEN?.trim();
     if (!raw || !token) return null;
     const url = safeEndpointUrl(raw, true);
-    return url ? { url, token } : null;
+    return url ? { url, token, relay: true } : null;
   }
   if (transport !== "direct") return null;
   const token = env.LANGGRAPH_S2S_TOKEN?.trim();
@@ -251,7 +263,7 @@ function dispatchTarget(env: ShadowEnv, path: string): DispatchTarget | null {
   if (url.pathname !== "/" && url.pathname !== "") return null;
   if (env.VERCEL === "1" && (url.protocol !== "https:" ||
       isLocalOrPrivateHostname(url.hostname))) return null;
-  return { url: base.replace(/\/+$/, "") + path, token };
+  return { url: base.replace(/\/+$/, "") + path, token, relay: false };
 }
 
 function safeEndpointUrl(raw: string, relay: boolean): string | null {
