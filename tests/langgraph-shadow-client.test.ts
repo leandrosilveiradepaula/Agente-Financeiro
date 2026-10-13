@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildLangGraphShadowPrincipal,
   dispatchLangGraphExecuteApprovedShadow,
-  dispatchLangGraphGenerateShadow
+  dispatchLangGraphGenerateShadow,
+  isLangGraphShadowDispatchConfigured
 } from "@/lib/langgraph-shadow-client";
 import type { AgentSession } from "@/lib/auth/auth-types";
 
@@ -96,6 +97,17 @@ async function expectShadowTimeoutDelay(
 }
 
 describe("LangGraph shadow client", () => {
+  it("reports configured dispatch only when required values are present", () => {
+    expect(isLangGraphShadowDispatchConfigured(enabledEnv)).toBe(true);
+    expect(isLangGraphShadowDispatchConfigured({ ...enabledEnv, LANGGRAPH_SHADOW_ENABLED: "false" })).toBe(false);
+    expect(isLangGraphShadowDispatchConfigured({ ...enabledEnv, LANGGRAPH_OFFICIAL_VIA_N8N: "true" })).toBe(false);
+    expect(isLangGraphShadowDispatchConfigured({ ...enabledEnv, LANGGRAPH_S2S_TOKEN: "" })).toBe(false);
+    expect(isLangGraphShadowDispatchConfigured({ ...enabledEnv, LANGGRAPH_INTERNAL_BASE_URL: "" })).toBe(false);
+    expect(isLangGraphShadowDispatchConfigured({ ...enabledEnv, VERCEL: "1" })).toBe(false);
+    expect(isLangGraphShadowDispatchConfigured({ ...enabledEnv, VERCEL: "1", LANGGRAPH_INTERNAL_BASE_URL: "https://shadow.example.test" })).toBe(true);
+    expect(isLangGraphShadowDispatchConfigured({ ...enabledEnv, VERCEL: "1", LANGGRAPH_INTERNAL_BASE_URL: "http://shadow.example.test" })).toBe(false);
+    expect(isLangGraphShadowDispatchConfigured({ ...enabledEnv, LANGGRAPH_INTERNAL_BASE_URL: "https://user:pass@shadow.example.test" })).toBe(false);
+  });
   it("does not call LangGraph when the feature flag is off", async () => {
     const fetchImpl = vi.fn();
 
