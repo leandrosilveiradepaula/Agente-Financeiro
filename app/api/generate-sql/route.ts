@@ -915,7 +915,8 @@ export async function POST(request: Request) {
       estimated_savings_usd: llmPersistence.estimatedSavingsUsd
     };
 
-    if (directShadowEnabled) {
+    // Never silently fall back to Gemini when an explicit Shadow model cannot be resolved.
+    if (directShadowEnabled && shadowLlmSelection !== null) {
       const principal = buildLangGraphShadowPrincipal(session);
 
       after(async () => {

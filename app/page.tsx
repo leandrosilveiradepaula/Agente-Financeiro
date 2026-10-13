@@ -261,6 +261,7 @@ export default function Home() {
   const [selectedLlmModelId, setSelectedLlmModelId] = useState("");
   const [llmModelsLoading, setLlmModelsLoading] = useState(false);
   const [llmModelsError, setLlmModelsError] = useState("");
+  const [shadowDispatchConfigured, setShadowDispatchConfigured] = useState<boolean | null>(null);
   const generationRequestRef = useRef(0);
 
   const canGenerateSqlByPolicy = Boolean(accountPolicy?.can_generate_sql);
@@ -416,6 +417,7 @@ export default function Home() {
         setLlmModels([]);
         setSelectedLlmModelId("");
         setLlmModelsError("");
+        setShadowDispatchConfigured(null);
         return;
       }
 
@@ -435,6 +437,7 @@ export default function Home() {
         if (!active) return;
 
         setLlmModels(data.models);
+        setShadowDispatchConfigured(data.shadow_dispatch_configured === true);
         const defaultId = data.default_selection
           ? `${data.default_selection.provider_key}:${data.default_selection.model_key}:${data.default_selection.config_version}`
           : "";
@@ -457,6 +460,7 @@ export default function Home() {
           setLlmModels([]);
           setSelectedLlmModelId("");
           setLlmModelsError("Não foi possível carregar os modelos de IA disponíveis.");
+          setShadowDispatchConfigured(null);
         }
       } finally {
         if (active) setLlmModelsLoading(false);
@@ -1453,6 +1457,7 @@ export default function Home() {
               selectedLlmModelId={selectedLlmModelId}
               llmModelsLoading={llmModelsLoading}
               llmModelsError={llmModelsError}
+              shadowDispatchConfigured={shadowDispatchConfigured}
               onQuestionChange={setQuestion}
               onLlmModelChange={setSelectedLlmModelId}
               onUseSqlCacheChange={updateUseSqlCache}

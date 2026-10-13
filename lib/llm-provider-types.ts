@@ -26,5 +26,6 @@ export type LlmModelsResponse = {
   target: LlmExecutionTarget;
   models: PublicLlmModel[];
   default_selection: LlmSelection | null;
+  shadow_dispatch_configured?: boolean;
   error?: string;
 };
