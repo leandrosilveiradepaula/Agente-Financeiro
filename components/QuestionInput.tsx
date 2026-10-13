@@ -12,6 +12,7 @@ type QuestionInputProps = {
   selectedLlmModelId: string;
   llmModelsLoading?: boolean;
   llmModelsError?: string;
+  shadowDispatchConfigured?: boolean | null;
   onQuestionChange: (value: string) => void;
   onLlmModelChange: (value: string) => void;
   onUseSqlCacheChange: (value: boolean) => void;
@@ -29,6 +30,7 @@ export function QuestionInput({
   selectedLlmModelId,
   llmModelsLoading = false,
   llmModelsError,
+  shadowDispatchConfigured = null,
   onQuestionChange,
   onLlmModelChange,
   onUseSqlCacheChange,
@@ -86,6 +88,11 @@ export function QuestionInput({
             </option>
           ))}
         </select>
+        {shadowDispatchConfigured === false ? (
+          <span role="status" className="mt-2 block text-xs text-amber-900">
+            A comparação Shadow ainda não está configurada para este ambiente. A resposta oficial continua no n8n.
+          </span>
+        ) : null}
         {llmModelsError ? (
           <span className="mt-2 block text-xs font-semibold text-rose-700">
             {llmModelsError}
