@@ -7,6 +7,7 @@ import {
 } from "@/lib/llm-provider-registry";
 import type { LlmExecutionTarget, LlmModelsResponse } from "@/lib/llm-provider-types";
 import { buildPolicyDeniedResponse, enforceCanGenerateSql } from "@/lib/profile-policy";
+import { isLangGraphShadowDispatchConfigured } from "@/lib/langgraph-shadow-client";
 import { requireAgentSession } from "@/lib/server-auth";
 
 export const runtime = "nodejs";
@@ -66,7 +67,10 @@ export async function GET(request: Request) {
       registry_version: getLlmRegistryVersion(),
       target,
       models,
-      default_selection: defaultSelection
+      default_selection: defaultSelection,
+      ...(target === "shadow" ? {
+        shadow_dispatch_configured: isLangGraphShadowDispatchConfigured()
+      } : {})
     } satisfies LlmModelsResponse,
     {
       headers: {
