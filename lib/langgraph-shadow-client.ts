@@ -70,24 +70,11 @@ export function isLangGraphShadowEnabled(env: ShadowEnv = process.env): boolean 
   return env.LANGGRAPH_SHADOW_ENABLED?.trim().toLowerCase() === "true";
 }
 
-// Configuration readiness only; not proof that a request has reached LangGraph.
+// Configuration readiness is not proof of network reachability.
 export function isLangGraphShadowDispatchConfigured(env: ShadowEnv = process.env): boolean {
   if (!isLangGraphShadowEnabled(env)) return false;
   if (env.LANGGRAPH_OFFICIAL_VIA_N8N?.trim().toLowerCase() === "true") return false;
-  if (!env.LANGGRAPH_S2S_TOKEN?.trim()) return false;
-  const raw = env.LANGGRAPH_INTERNAL_BASE_URL?.trim();
-  if (!raw) return false;
-  try {
-    const url = new URL(raw);
-    if (!(["http:", "https:"].includes(url.protocol)) ||
-        !url.hostname || url.username || url.password || url.search || url.hash ||
-        (url.pathname !== "/" && url.pathname !== "")) return false;
-    if (env.VERCEL === "1" && (url.protocol !== "https:" ||
-        ["localhost", "127.0.0.1", "::1"].includes(url.hostname))) return false;
-    return true;
-  } catch {
-    return false;
-  }
+  return dispatchTarget(env, "/v1/internal/sql-agent/generate") !== null;
 }
 
 export function buildLangGraphShadowPrincipal(
@@ -160,15 +147,8 @@ async function dispatchLangGraphShadow(
     return { status: "disabled" };
   }
 
-  let url: string;
-  let s2sToken: string;
-
-  try {
-    url = buildShadowUrl(env, path);
-    s2sToken = getS2sToken(env);
-  } catch {
-    return sanitizedFailure("configuration_error");
-  }
+  const target = dispatchTarget(env, path);
+  if (!target) return sanitizedFailure("configuration_error");
 
   const controller = new AbortController();
   const timeout = setTimeout(
@@ -178,10 +158,10 @@ async function dispatchLangGraphShadow(
   const fetchImpl = options.fetchImpl ?? fetch;
 
   try {
-    const response = await fetchImpl(url, {
+    const response = await fetchImpl(target.url, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${s2sToken}`,
+        Authorization: `Bearer ${target.token}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify(payload),
@@ -245,19 +225,58 @@ function buildCorrelationMetadata({
   };
 }
 
-function buildShadowUrl(env: ShadowEnv, path: string): string {
-  const baseUrl = env.LANGGRAPH_INTERNAL_BASE_URL?.trim() || DEFAULT_LANGGRAPH_BASE_URL;
-  const url = new URL(baseUrl);
+type DispatchTarget = { url: string; token: string };
 
-  return `${url.toString().replace(/\/+$/, "")}${path}`;
+function dispatchTarget(env: ShadowEnv, path: string): DispatchTarget | null {
+  const transport = env.LANGGRAPH_SHADOW_TRANSPORT?.trim() || "direct";
+  if (transport === "n8n_relay") {
+    const key = path === "/v1/internal/sql-agent/generate"
+      ? "LANGGRAPH_SHADOW_RELAY_GENERATE_URL"
+      : path === "/v1/internal/sql-agent/execute-approved-shadow"
+        ? "LANGGRAPH_SHADOW_RELAY_EXECUTE_URL"
+        : null;
+    const raw = key ? env[key]?.trim() : undefined;
+    const token = env.LANGGRAPH_SHADOW_RELAY_TOKEN?.trim();
+    if (!raw || !token) return null;
+    const url = safeEndpointUrl(raw, true);
+    return url ? { url, token } : null;
+  }
+  if (transport !== "direct") return null;
+  const token = env.LANGGRAPH_S2S_TOKEN?.trim();
+  const raw = env.LANGGRAPH_INTERNAL_BASE_URL?.trim();
+  if (!token || !raw) return null;
+  const base = safeEndpointUrl(raw, false);
+  if (!base) return null;
+  const url = new URL(base);
+  if (url.pathname !== "/" && url.pathname !== "") return null;
+  if (env.VERCEL === "1" && (url.protocol !== "https:" ||
+      isLocalOrPrivateHostname(url.hostname))) return null;
+  return { url: base.replace(/\/+$/, "") + path, token };
 }
 
-function getS2sToken(env: ShadowEnv): string {
-  const token = env.LANGGRAPH_S2S_TOKEN?.trim();
-  if (!token) {
-    throw new Error("LANGGRAPH_S2S_TOKEN is required.");
+function safeEndpointUrl(raw: string, relay: boolean): string | null {
+  try {
+    const url = new URL(raw);
+    if (!url.hostname || url.username || url.password || url.search ||
+        url.hash || !["http:", "https:"].includes(url.protocol)) return null;
+    if (relay && (url.protocol !== "https:" ||
+        isLocalOrPrivateHostname(url.hostname) || url.pathname === "/")) return null;
+    return url.toString();
+  } catch {
+    return null;
   }
-  return token;
+}
+
+function isLocalOrPrivateHostname(host: string): boolean {
+  const h = host.toLowerCase().replace(/\.$/, "");
+  if (["localhost", "::1", "[::1]"].includes(h) ||
+      h.endsWith(".localhost") || h.endsWith(".local") ||
+      h.endsWith(".internal")) return true;
+  if (h === "0.0.0.0" || h.startsWith("127.") ||
+      h.startsWith("10.") || h.startsWith("192.168.") ||
+      h.startsWith("169.254.")) return true;
+  const match = /^172\.(\d+)\./.exec(h);
+  return Boolean(match && Number(match[1]) >= 16 && Number(match[1]) <= 31);
 }
 
 function getShadowTimeoutMs(
