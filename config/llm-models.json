@@ -1,5 +1,5 @@
 {
-  "registry_version": "llm-registry-2026-10-06.2",
+  "registry_version": "llm-registry-2026-10-13.1",
   "environment": "demo",
   "models": [
     {
@@ -35,14 +35,14 @@
       "temperature": 0
     },
     {
-      "provider_key": "infodive_local",
-      "model_key": "sql-infodive",
-      "config_version": "sql-infodive-demo-v1",
-      "display_name": "sql-infodive",
-      "provider_display_name": "Infodive Local",
-      "description": "Modelo SQL local da Infodive disponível para comparação Shadow via LangGraph.",
-      "location": "local",
-      "status": "online",
+      "provider_key": "infodive_ibm_cloud",
+      "model_key": "SQL-InfoDive",
+      "config_version": "sql-infodive-ibm-cloud-v1",
+      "display_name": "SQL-InfoDive",
+      "provider_display_name": "Infodive — IBM Cloud",
+      "description": "LLM privada Infodive hospedada na IBM Cloud, acessada via VPN WireGuard para comparação Shadow.",
+      "location": "cloud",
+      "status": "configured",
       "enabled": true,
       "targets": [
         "shadow"
@@ -56,8 +56,9 @@
       ],
       "adapter_type": "openai_compatible_chat",
       "runtime": {
-        "base_url_ref_env": "OPENWEBUI_URL",
-        "credential_ref_env": "OPENWEBUI_API_KEY"
+        "base_url_ref_env": "OPENAI_COMPATIBLE_SQL_BASE_URL",
+        "credential_ref_env": "OPENAI_COMPATIBLE_SQL_API_KEY",
+        "http_host_ref_env": "OPENAI_COMPATIBLE_SQL_HTTP_HOST"
       },
       "timeout_ms": 180000,
       "max_tokens": 8192,

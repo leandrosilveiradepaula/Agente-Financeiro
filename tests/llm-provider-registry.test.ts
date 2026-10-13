@@ -19,9 +19,9 @@ describe("LLM provider registry", () => {
     expect(models.length).toBeGreaterThan(0);
     expect(models.every((model) => model.capabilities.includes("sql_generation"))).toBe(true);
     expect(models.some((model) => model.available_for_target)).toBe(true);
-    const localModel = models.find((model) => model.model_key === "sql-infodive");
-    expect(localModel).toBeDefined();
-    expect(localModel?.available_for_target).toBe(false);
+    const privateModel = models.find((model) => model.provider_key === "infodive_ibm_cloud");
+    expect(privateModel).toBeDefined();
+    expect(privateModel?.available_for_target).toBe(false);
   });
 
   it("keeps runtime connection references out of the public model shape", () => {
@@ -55,19 +55,67 @@ describe("LLM provider registry", () => {
     expect(getLlmRegistryVersion()).toMatch(/^llm-registry-/);
   });
 
-  it("rejects the local model on the official path", () => {
+  it("rejects the private IBM Cloud model on the official path", () => {
     expect(() =>
       resolveLlmSelection({
         environment: getLlmRegistryEnvironment(),
         target: "official",
         profile: "admin",
         requested: {
-          provider_key: "infodive_local",
-          model_key: "sql-infodive",
-          config_version: "sql-infodive-demo-v1"
+          provider_key: "infodive_ibm_cloud",
+          model_key: "SQL-InfoDive",
+          config_version: "sql-infodive-ibm-cloud-v1"
         }
       })
     ).toThrow("llm_model_not_available");
+  });
+
+
+  it("offers the IBM Cloud model only for Shadow without exposing infrastructure details", () => {
+    const models = listAvailableLlmModels({
+      environment: getLlmRegistryEnvironment(),
+      target: "shadow",
+      profile: "admin"
+    });
+    const model = models.find((item) => item.provider_key === "infodive_ibm_cloud");
+    expect(model).toMatchObject({
+      model_key: "SQL-InfoDive",
+      config_version: "sql-infodive-ibm-cloud-v1",
+      location: "cloud",
+      status: "configured",
+      available_for_target: true
+    });
+    expect(JSON.stringify(model)).not.toContain("base_url_ref_env");
+    expect(JSON.stringify(model)).not.toContain("http_host_ref_env");
+    expect(JSON.stringify(model)).not.toContain("credential_ref_env");
+    const resolved = resolveLlmSelection({
+      environment: getLlmRegistryEnvironment(),
+      target: "shadow",
+      profile: "admin",
+      requested: {
+        provider_key: "infodive_ibm_cloud",
+        model_key: "SQL-InfoDive",
+        config_version: "sql-infodive-ibm-cloud-v1"
+      }
+    });
+    expect(resolved.selection).toEqual({
+      provider_key: "infodive_ibm_cloud",
+      model_key: "SQL-InfoDive",
+      config_version: "sql-infodive-ibm-cloud-v1"
+    });
+  });
+
+  it("rejects the retired local model identity", () => {
+    expect(() => resolveLlmSelection({
+      environment: getLlmRegistryEnvironment(),
+      target: "shadow",
+      profile: "admin",
+      requested: {
+        provider_key: "infodive_local",
+        model_key: "sql-infodive",
+        config_version: "sql-infodive-demo-v1"
+      }
+    })).toThrow("llm_model_not_available");
   });
 
   it("requires provider, model and config version in explicit selections", () => {
