@@ -116,7 +116,9 @@ describe("LangGraph shadow client", () => {
       LANGGRAPH_S2S_TOKEN: ""
     };
     expect(isLangGraphShadowDispatchConfigured(env)).toBe(true);
-    const fetchImpl = vi.fn().mockResolvedValue(okResponse());
+    const fetchImpl = vi.fn().mockResolvedValue(okResponse(
+      JSON.stringify({ relay_status: "accepted", agent_run_id: baseInput.agentRunId })
+    ));
     const result = await dispatchLangGraphGenerateShadow({
       ...baseInput,
       llmSelection: {provider_key:"infodive_ibm_cloud",model_key:"SQL-InfoDive",config_version:"sql-infodive-ibm-cloud-v1"}
@@ -125,6 +127,17 @@ describe("LangGraph shadow client", () => {
     expect(fetchImpl.mock.calls[0][0]).toBe("https://relay.example.test/webhook/shadow");
     expect((fetchImpl.mock.calls[0][1].headers as Record<string,string>).Authorization).toBe("Bearer separate-relay-token");
     expect(readRequestBody(fetchImpl).llm_selection).toMatchObject({model_key:"SQL-InfoDive"});
+    expect((fetchImpl.mock.calls[0][1] as RequestInit).redirect).toBe("error");
+  });
+  it("rejects relay success without a matching correlated acknowledgement", async () => {
+    const env = {...enabledEnv, LANGGRAPH_SHADOW_TRANSPORT:"n8n_relay",
+      LANGGRAPH_SHADOW_RELAY_GENERATE_URL:"https://relay.example.test/webhook/shadow",
+      LANGGRAPH_SHADOW_RELAY_TOKEN:"relay-token"};
+    for (const body of ["{}", "{\\\"relay_status\\\":\\\"accepted\\\",\\\"agent_run_id\\\":\\\"wrong\\\"}", ""]) {
+      const fetchImpl=vi.fn().mockResolvedValue(okResponse(body));
+      const result=await dispatchLangGraphGenerateShadow(baseInput,{env,fetchImpl});
+      expect(result.status).toBe("invalid_response");
+    }
   });
   it("fails closed with an insecure or incomplete relay", async () => {
     for (const endpoint of ["http://relay.example.test/webhook/abc","https://127.0.0.1/webhook/abc","https://relay.example.test/","https://relay.example.test/webhook/abc?token=bad"]) {
