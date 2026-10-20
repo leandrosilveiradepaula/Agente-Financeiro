@@ -33,6 +33,43 @@ type VisualizationState =
   | { status: "not_found"; data: null; message: string }
   | { status: "error"; data: null; message: string };
 
+type SqlAssessment = {
+  verdict: "normalized_sql_match" | "structural_differences" | "inconclusive";
+  different_facets: string[];
+  intent_label_status: "identifiers_matched" | "identifier_mismatch" | "unattested";
+  provider_identity_status: "identifiers_matched" | "identifier_mismatch" | "unattested";
+  tenant_identity_attested: boolean;
+  financial_parity_proven: false;
+  real_sql_executed: false;
+  requires_reapproval: boolean;
+};
+
+type ComparisonStage =
+  | { status: "ok"; data: SqlAssessment }
+  | { status: "not_recorded" | "rejected" | "unavailable" };
+
+type ComparisonData = {
+  generated: ComparisonStage;
+  executed: ComparisonStage;
+  official_sql_text_changed: boolean | null;
+};
+
+type ComparisonState =
+  | { status: "idle" | "loading"; shadowId: string | null }
+  | { status: "ready"; shadowId: string; data: ComparisonData }
+  | { status: "error"; shadowId: string; message: string };
+
+const SQL_FACET_LABELS: Record<string, string> = {
+  physical_tables: "Tabelas",
+  joined_relations: "Joins e relacionamentos",
+  predicates: "Filtros",
+  projections: "Projeções",
+  groupings: "Agrupamentos",
+  orderings: "Ordenação",
+  functions: "Funções e agregações",
+  query_shape: "Estrutura da consulta"
+};
+
 const METADATA_LABELS = {
   attempt: "Tentativa",
   attempts: "Tentativas",
@@ -145,6 +182,10 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
     runs: []
   });
   const [selectedShadowId, setSelectedShadowId] = useState<string | null>(null);
+  const [comparisonEnabled, setComparisonEnabled] = useState(false);
+  const [comparisonState, setComparisonState] = useState<ComparisonState>({
+    status: "idle", shadowId: null
+  });
   const [visualizationState, setVisualizationState] = useState<VisualizationState>({
     status: "idle",
     data: null
@@ -153,12 +194,15 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
   useEffect(() => {
     const controller = new AbortController();
     let active = true;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
     setListState({ status: "loading", runs: [] });
     setSelectedShadowId(null);
+    setComparisonEnabled(false);
+    setComparisonState({ status: "idle", shadowId: null });
     setVisualizationState({ status: "idle", data: null });
 
-    async function loadShadowRuns() {
+    async function loadShadowRuns(attempt = 0) {
       try {
         const response = await fetch(
           `/api/admin/runs/${encodeURIComponent(agentRunId)}/shadow-runs?limit=20`,
@@ -199,17 +243,32 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
           return;
         }
 
-        const data = (await response.json()) as { shadow_runs?: ShadowRunSummary[] };
+        const data = (await response.json()) as {
+          shadow_runs?: ShadowRunSummary[];
+          comparison_enabled?: boolean;
+          shadow_enabled?: boolean;
+        };
         const runs = data.shadow_runs ?? [];
 
         if (!active) return;
+        setComparisonEnabled(data.comparison_enabled === true);
 
         if (runs.length === 0) {
+          // Background generation may still be running; only read evidence.
+          // Do not trigger LLM generation, SQL execution, or repair again.
+          const waitingForShadow = data.shadow_enabled === true && attempt < 12;
           setListState({
             status: "empty",
             runs: [],
-            message: "Nenhum Shadow Run encontrado para esta execucao."
+            message: waitingForShadow
+              ? "Aguardando evidencias do Shadow; atualizacao automatica em andamento."
+              : "Nenhum Shadow Run encontrado para esta execucao."
           });
+          if (waitingForShadow) {
+            retryTimer = setTimeout(() => {
+              if (active) void loadShadowRuns(attempt + 1);
+            }, 8000);
+          }
           return;
         }
 
@@ -229,6 +288,7 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
 
     return () => {
       active = false;
+      if (retryTimer) clearTimeout(retryTimer);
       controller.abort();
     };
   }, [agentRunId]);
@@ -333,6 +393,42 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
     [listState.runs, selectedShadowId]
   );
 
+  async function compareSelectedRun() {
+    if (!selectedShadowId || selectedRun?.event_type !== "generate" ||
+        !comparisonEnabled) return;
+    const shadowId = selectedShadowId;
+    setComparisonState({ status: "loading", shadowId });
+    try {
+      const endpoint = "/api/admin/runs/" + encodeURIComponent(agentRunId) +
+        "/shadow-comparison?shadow_record_id=" + encodeURIComponent(shadowId);
+      const response = await fetch(endpoint, { cache: "no-store" });
+      if (!response.ok) {
+        setComparisonState({
+          status: "error", shadowId,
+          message: response.status === 403
+            ? "Perfil não autorizado a comparar SQL."
+            : response.status === 503
+              ? "Comparação indisponível até liberação operacional."
+              : "Não foi possível comparar estas evidências."
+        });
+        return;
+      }
+      const body = (await response.json()) as {
+        success?: boolean;
+        comparison?: ComparisonData;
+      };
+      if (body.success !== true || !body.comparison) {
+        throw Error("invalid_comparison");
+      }
+      setComparisonState({ status: "ready", shadowId, data: body.comparison });
+    } catch {
+      setComparisonState({
+        status: "error", shadowId,
+        message: "Falha ao ler a comparação estrutural."
+      });
+    }
+  }
+
   return (
     <section className="rounded-md border border-slate-200 p-4">
       <div className="flex flex-col justify-between gap-3 border-b border-slate-100 pb-3 md:flex-row md:items-center">
@@ -368,6 +464,58 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
 
             {selectedRun ? <ShadowRunSummaryCards run={selectedRun} /> : null}
 
+            {selectedRun?.event_type === "generate" && !comparisonEnabled ? (
+              <StateMessage tone="neutral" text="A comparação de SQL está desativada neste ambiente." />
+            ) : null}
+            {selectedRun?.event_type === "generate" && comparisonEnabled ? (
+              <div className="space-y-2 rounded-md border border-slate-200 p-3">
+                <button type="button"
+                  className="rounded-md bg-slate-800 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  onClick={compareSelectedRun}
+                  disabled={comparisonState.status === "loading" &&
+                    comparisonState.shadowId === selectedShadowId}
+                >
+                  Comparar SQLs registradas (sem executar)
+                </button>
+                <p className="text-xs text-steel">
+                  Compara a SQL devolvida pelo n8n após o cleaner e, se houver, a SQL
+                  registrada em execução posterior do Produto, com a mesma geração LangGraph.
+                </p>
+                {comparisonState.shadowId === selectedShadowId &&
+                 comparisonState.status === "loading" ? (
+                  <StateMessage tone="info" text="Comparando estruturas SQL..." />
+                ) : null}
+                {comparisonState.shadowId === selectedShadowId &&
+                 comparisonState.status === "error" ? (
+                  <StateMessage tone="warning" text={comparisonState.message} />
+                ) : null}
+                {comparisonState.shadowId === selectedShadowId &&
+                 comparisonState.status === "ready" ? (
+                  <div className="space-y-3 text-sm">
+                    <SqlComparisonStage
+                      label="SQL devolvida pelo n8n (após o cleaner)"
+                      stage={comparisonState.data.generated}
+                    />
+                    <SqlComparisonStage
+                      label="SQL registrada em execução posterior do Produto"
+                      stage={comparisonState.data.executed}
+                    />
+                    {comparisonState.data.official_sql_text_changed === true ? (
+                      <p className="text-amber-800">
+                        As SQLs guardadas pelo Produto são textualmente diferentes.
+                        Isso não demonstra o que o cleaner alterou no n8n.
+                      </p>
+                    ) : null}
+                    <p className="font-medium text-steel">
+                      A SQL original do Gemini, antes do cleaner, não está registrada
+                      nestas etapas. Paridade financeira e equivalência numérica
+                      não comprovadas; nenhuma SQL é executada pelo comparador.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             {visualizationState.status === "loading" ? (
               <StateMessage tone="info" text="Carregando visualizacao Shadow..." />
             ) : visualizationState.status === "ready" ? (
@@ -382,6 +530,65 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
         )}
       </div>
     </section>
+  );
+}
+
+function SqlComparisonStage({
+  label,
+  stage
+}: {
+  label: string;
+  stage: ComparisonStage;
+}) {
+  if (stage.status !== "ok") {
+    return (
+      <div className="rounded-md border border-slate-200 p-3">
+        <p className="font-semibold text-ink">{label}</p>
+        <p className="text-steel">
+          {stage.status === "not_recorded" ? "SQL não registrada nesta etapa."
+            : stage.status === "rejected" ? "SQL não comparável com segurança."
+              : "Comparação indisponível."}
+        </p>
+      </div>
+    );
+  }
+  const item = stage.data;
+  return (
+    <div className="space-y-2 rounded-md border border-slate-200 p-3">
+      <p className="font-semibold text-ink">{label}</p>
+      <p>
+        {item.verdict === "normalized_sql_match"
+          ? "Consultas normalizadas coincidem"
+          : item.verdict === "structural_differences"
+            ? "Diferenças estruturais detectadas" : "Comparação inconclusiva"}
+      </p>
+      {item.different_facets.length ? (
+        <p>Aspectos: {item.different_facets
+          .map((x) => SQL_FACET_LABELS[x] ?? "Outros").join(", ")}</p>
+      ) : null}
+      <p>Intenção detectada: {item.intent_label_status === "identifiers_matched"
+        ? "identificadores coincidem"
+        : item.intent_label_status === "identifier_mismatch"
+          ? "identificadores diferentes, sem concluir divergência contábil"
+          : "sem evidência suficiente"}</p>
+      {item.provider_identity_status === "identifier_mismatch" ? (
+        <p className="text-amber-800">
+          Provedor/modelo não coincidem literalmente.
+        </p>
+      ) : item.provider_identity_status === "unattested" ? (
+        <p className="text-amber-800">
+          Provedor/modelo de ambos os caminhos ainda não estão comprovados.
+        </p>
+      ) : (
+        <p>Identificadores registrados de provedor/modelo coincidem.</p>
+      )}
+      {!item.tenant_identity_attested ? (
+        <p className="text-amber-800">Isolamento por tenant ainda não comprovado.</p>
+      ) : null}
+      {item.requires_reapproval ? (
+        <p className="text-amber-800">SQL reparada requer nova aprovação.</p>
+      ) : null}
+    </div>
   );
 }
 
