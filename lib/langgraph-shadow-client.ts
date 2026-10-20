@@ -1,6 +1,7 @@
 import type { AgentSession } from "@/lib/auth/auth-types";
 
 const DEFAULT_LANGGRAPH_BASE_URL = "http://127.0.0.1:8000";
+const N8N_SHADOW_TRANSPORT = "n8n";
 const DEFAULT_SHADOW_TIMEOUT_MS = 1500;
 const MIN_SHADOW_TIMEOUT_MS = 100;
 const MAX_SHADOW_TIMEOUT_MS = 10000;
@@ -138,12 +139,21 @@ async function dispatchLangGraphShadow(
   let s2sToken: string;
 
   try {
-    url = buildShadowUrl(env, path);
-    s2sToken = getS2sToken(env);
+    if (env.LANGGRAPH_SHADOW_TRANSPORT?.trim().toLowerCase() === N8N_SHADOW_TRANSPORT) {
+      url = getN8nShadowWebhookUrl(env);
+      s2sToken = getN8nShadowToken(env);
+    } else if (!env.LANGGRAPH_SHADOW_TRANSPORT ||
+               env.LANGGRAPH_SHADOW_TRANSPORT.trim().toLowerCase() === "direct") {
+      url = buildShadowUrl(env, path);
+      s2sToken = getS2sToken(env);
+    } else {
+      throw new Error("unsupported shadow transport");
+    }
   } catch {
     return sanitizedFailure("configuration_error");
   }
 
+  const n8nTransport = env.LANGGRAPH_SHADOW_TRANSPORT?.trim().toLowerCase() === N8N_SHADOW_TRANSPORT;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), getShadowTimeoutMs(env));
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -151,10 +161,9 @@ async function dispatchLangGraphShadow(
   try {
     const response = await fetchImpl(url, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${s2sToken}`,
-        "Content-Type": "application/json"
-      },
+      headers: n8nTransport
+        ? { "X-Agent-Shadow-Token": s2sToken, "Content-Type": "application/json" }
+        : { Authorization: `Bearer ${s2sToken}`, "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       cache: "no-store",
       signal: controller.signal
@@ -170,10 +179,21 @@ async function dispatchLangGraphShadow(
 
     const text = await response.text();
 
+    let parsed: unknown = null;
     if (text) {
       try {
-        JSON.parse(text);
+        parsed = JSON.parse(text);
       } catch {
+        return sanitizedFailure("invalid_response");
+      }
+    }
+    if (n8nTransport) {
+      const ack = parsed as {accepted?: unknown; contract_version?: unknown; agent_run_id?: unknown} | null;
+      const submitted = payload as {agent_run_id?: unknown};
+      if (response.status !== 202 ||
+          !ack || ack.accepted !== true ||
+          ack.contract_version !== "1" ||
+          ack.agent_run_id !== submitted.agent_run_id) {
         return sanitizedFailure("invalid_response");
       }
     }
@@ -260,4 +280,22 @@ function sanitizedFailure(
     errorName: error instanceof Error ? error.name : undefined,
     errorMessage: "LangGraph shadow dispatch failed"
   };
+}
+
+function getN8nShadowWebhookUrl(env: ShadowEnv): string {
+  const raw = env.LANGGRAPH_SHADOW_N8N_WEBHOOK_URL?.trim();
+  if (!raw) throw new Error("N8N shadow URL missing");
+  const url = new URL(raw);
+  if (url.protocol !== "https:" ||
+      url.username || url.password || url.search || url.hash ||
+      !url.pathname.endsWith("/webhook/langgraph-shadow-parallel-v1")) {
+    throw new Error("N8N shadow URL invalid");
+  }
+  return url.toString();
+}
+
+function getN8nShadowToken(env: ShadowEnv): string {
+  const token = env.N8N_SHADOW_WEBHOOK_TOKEN?.trim();
+  if (!token) throw new Error("N8N shadow credential missing");
+  return token;
 }

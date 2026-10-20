@@ -370,3 +370,88 @@ describe("LangGraph shadow client", () => {
     expect(readRequestBody(fetchImpl).approved_sql).toBe(approvedSql);
   });
 });
+
+describe("optional n8n-orchestrated Shadow transport", () => {
+  const n8nEnv = {
+    ...enabledEnv,
+    LANGGRAPH_SHADOW_TRANSPORT: "n8n",
+    LANGGRAPH_SHADOW_N8N_WEBHOOK_URL:
+      "https://n8n.example.invalid/webhook/langgraph-shadow-parallel-v1",
+    N8N_SHADOW_WEBHOOK_TOKEN: "isolated-test-shadow-token"
+  };
+
+  it("posts identical generate envelope to private n8n without leaking S2S credential", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true, status: 202,
+      text: async () => JSON.stringify({
+        contract_version: "1", accepted: true,
+        agent_run_id: baseInput.agentRunId
+      })
+    });
+    const result = await dispatchLangGraphGenerateShadow(baseInput,{
+      env: n8nEnv, fetchImpl
+    });
+    expect(result).toMatchObject({status:"sent",httpStatus:202});
+    const [url,init] = fetchImpl.mock.calls[0];
+    expect(url).toBe(n8nEnv.LANGGRAPH_SHADOW_N8N_WEBHOOK_URL);
+    expect(init.headers).toEqual({
+      "X-Agent-Shadow-Token":"isolated-test-shadow-token",
+      "Content-Type":"application/json"
+    });
+    expect(readRequestBody(fetchImpl)).toMatchObject({
+      agent_run_id:baseInput.agentRunId,
+      question:baseInput.question,
+      correlation_metadata:{event:"generate",request_id:baseInput.requestId}
+    });
+    expect(JSON.stringify(readRequestBody(fetchImpl))).not.toContain("isolated-test-shadow-token");
+  });
+
+  it("keeps SQL byte-for-byte in n8n execute-approved shadow envelope", async () => {
+    const fetchImpl=vi.fn().mockResolvedValue({
+      ok:true,status:202,
+      text:async()=>JSON.stringify({
+        contract_version:"1",accepted:true,agent_run_id:baseInput.agentRunId
+      })
+    });
+    const approvedSql="  SELECT 1 AS measure  ";
+    const result=await dispatchLangGraphExecuteApprovedShadow({
+      agentRunId:baseInput.agentRunId, approvedSql,
+      principal:baseInput.principal,requestId:baseInput.requestId
+    },{env:n8nEnv,fetchImpl});
+    expect(result.status).toBe("sent");
+    expect(readRequestBody(fetchImpl).approved_sql).toBe(approvedSql);
+    expect((readRequestBody(fetchImpl).correlation_metadata as any).event)
+      .toBe("execute_approved");
+  });
+
+  it("fails closed on missing secret, http transport, bogus 200 or mismatched acknowledgement", async () => {
+    const fetchImpl=vi.fn();
+    let result=await dispatchLangGraphGenerateShadow(baseInput,{
+      env:{...n8nEnv,N8N_SHADOW_WEBHOOK_TOKEN:""},fetchImpl
+    });
+    expect(result.status).toBe("configuration_error");
+    result=await dispatchLangGraphGenerateShadow(baseInput,{
+      env:{...n8nEnv,LANGGRAPH_SHADOW_N8N_WEBHOOK_URL:
+        "http://n8n.example.invalid/webhook/langgraph-shadow-parallel-v1"},
+      fetchImpl
+    });
+    expect(result.status).toBe("configuration_error");
+    expect(fetchImpl).not.toHaveBeenCalled();
+    fetchImpl.mockResolvedValueOnce({
+      ok:true,status:200,
+      text:async()=>JSON.stringify({
+        contract_version:"1",accepted:true,agent_run_id:baseInput.agentRunId
+      })
+    });
+    result=await dispatchLangGraphGenerateShadow(baseInput,{env:n8nEnv,fetchImpl});
+    expect(result.status).toBe("invalid_response");
+    fetchImpl.mockResolvedValueOnce({
+      ok:true,status:202,
+      text:async()=>JSON.stringify({
+        contract_version:"1",accepted:true,agent_run_id:"other"
+      })
+    });
+    result=await dispatchLangGraphGenerateShadow(baseInput,{env:n8nEnv,fetchImpl});
+    expect(result.status).toBe("invalid_response");
+  });
+});
