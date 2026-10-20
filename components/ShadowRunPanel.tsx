@@ -181,6 +181,7 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
     runs: []
   });
   const [selectedShadowId, setSelectedShadowId] = useState<string | null>(null);
+  const [comparisonEnabled, setComparisonEnabled] = useState(false);
   const [comparisonState, setComparisonState] = useState<ComparisonState>({
     status: "idle", shadowId: null
   });
@@ -195,6 +196,7 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
 
     setListState({ status: "loading", runs: [] });
     setSelectedShadowId(null);
+    setComparisonEnabled(false);
     setVisualizationState({ status: "idle", data: null });
 
     async function loadShadowRuns() {
@@ -238,10 +240,14 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
           return;
         }
 
-        const data = (await response.json()) as { shadow_runs?: ShadowRunSummary[] };
+        const data = (await response.json()) as {
+          shadow_runs?: ShadowRunSummary[];
+          comparison_enabled?: boolean;
+        };
         const runs = data.shadow_runs ?? [];
 
         if (!active) return;
+        setComparisonEnabled(data.comparison_enabled === true);
 
         if (runs.length === 0) {
           setListState({
@@ -440,7 +446,11 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
 
             {selectedRun ? <ShadowRunSummaryCards run={selectedRun} /> : null}
 
-            {selectedRun?.event_type === "generate" ? (
+            {selectedRun?.event_type === "generate" && !comparisonEnabled ? (
+              <StateMessage tone="neutral" text="A comparação de SQL está desativada neste ambiente." />
+            ) : null}
+
+            {selectedRun?.event_type === "generate" && comparisonEnabled ? (
               <div className="space-y-2 rounded-md border border-slate-200 p-3">
                 <button
                   type="button"

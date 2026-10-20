@@ -35,6 +35,22 @@ describe("Admin SQL comparison read boundary", () => {
     expect(route).not.toContain("request.json()");
   });
 
+
+  it("does not show an actionable SQL comparison button when the backend feature is disabled", () => {
+    const listRoute = readFileSync(
+      join(process.cwd(), "app/api/admin/runs/[id]/shadow-runs/route.ts"),
+      "utf8"
+    );
+    const panel = readFileSync(
+      join(process.cwd(), "components/ShadowRunPanel.tsx"),
+      "utf8"
+    );
+    expect(listRoute).toContain("comparison_enabled: isShadowSqlComparisonEnabled()");
+    expect(panel).toContain("setComparisonEnabled(data.comparison_enabled === true)");
+    expect(panel).toContain('selectedRun?.event_type === "generate" && comparisonEnabled');
+    expect(panel).toContain("A comparação de SQL está desativada neste ambiente.");
+  });
+
   it("does not execute SQL, update records, or return raw SQL", () => {
     expect(route).not.toContain("executeSql");
     expect(route).not.toContain("updateAgentRun");

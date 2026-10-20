@@ -48,3 +48,12 @@ se for apenas espaços ou comentários, e não determina erro financeiro.
 Quando não existe SQL executada, a interface mostra "SQL não registrada
 nesta etapa"; quando uma etapa não pode ser comparada com segurança,
 a tela deixa explícita a limitação. Nenhum valor SQL é exposto ao browser.
+
+## Disponibilidade do controle de comparação
+
+A API de listagem de Shadow retorna `comparison_enabled` ao usuário
+já autorizado a ver suas execuções. O painel só exibe o botão de
+comparação quando a flag está ativa no backend. Com a flag ausente ou
+desativada, mostra texto explicativo em vez de um botão inutilizável.
+Isso evita criar uma ação que parece disponível antes da configuração
+operacional e dos gates necessários.
