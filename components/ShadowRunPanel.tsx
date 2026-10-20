@@ -33,7 +33,7 @@ type VisualizationState =
   | { status: "not_found"; data: null; message: string }
   | { status: "error"; data: null; message: string };
 
-type ComparisonData = {
+type ComparisonSqlAssessment = {
   verdict: "normalized_sql_match" | "structural_differences" | "inconclusive";
   different_facets: string[];
   tenant_identity_attested: boolean;
@@ -41,6 +41,16 @@ type ComparisonData = {
   financial_parity_proven: false;
   real_sql_executed: false;
   requires_reapproval: boolean;
+};
+
+type ComparisonStage =
+  | { status: "ok"; data: ComparisonSqlAssessment }
+  | { status: "not_recorded" | "rejected" | "unavailable" };
+
+type ComparisonData = {
+  generated: ComparisonStage;
+  executed: ComparisonStage;
+  official_sql_text_changed: boolean | null;
 };
 
 type ComparisonState =
@@ -439,10 +449,10 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
                     comparisonState.shadowId === selectedShadowId}
                   className="rounded-md bg-slate-800 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 >
-                  Comparar SQL com oficial (sem executar)
+                  Comparar SQL gerada e executada (sem executar novamente)
                 </button>
                 <p className="text-xs text-steel">
-                  Compara consultas já geradas. Não executa SQL e não comprova equivalência financeira.
+                  Compara as duas versões registradas pelo fluxo oficial com a mesma geração LangGraph. Não executa SQL e não comprova equivalência financeira.
                 </p>
                 {comparisonState.shadowId === selectedShadowId &&
                  comparisonState.status === "loading" ? (
@@ -454,31 +464,24 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
                 ) : null}
                 {comparisonState.shadowId === selectedShadowId &&
                  comparisonState.status === "ready" ? (
-                  <div className="space-y-2 text-sm">
-                    <p className="font-semibold text-ink">
-                      {comparisonState.data.verdict === "normalized_sql_match"
-                        ? "Consultas normalizadas coincidem"
-                        : comparisonState.data.verdict === "structural_differences"
-                          ? "Divergências estruturais identificadas"
-                          : "Comparação inconclusiva"}
-                    </p>
-                    {comparisonState.data.different_facets.length ? (
-                      <p>
-                        Aspectos diferentes: {comparisonState.data.different_facets
-                          .map((facet) => SQL_COMPARISON_LABELS[facet] ?? "Outros")
-                          .join(", ")}
+                  <div className="space-y-3 text-sm">
+                    <SqlComparisonStage
+                      label="SQL gerada pelo fluxo oficial"
+                      stage={comparisonState.data.generated}
+                    />
+                    <SqlComparisonStage
+                      label="SQL registrada como executada pelo fluxo oficial"
+                      stage={comparisonState.data.executed}
+                    />
+                    {comparisonState.data.official_sql_text_changed === true ? (
+                      <p className="font-medium text-amber-800">
+                        A SQL oficial foi alterada entre geração e execução.
+                        Verifique o cleaner e os filtros; a diferença pode ser apenas formatação.
                       </p>
-                    ) : null}
-                    {!comparisonState.data.tenant_identity_attested ? (
-                      <p className="text-amber-800">
-                        Isolamento por tenant ainda não comprovado para esta execução.
-                      </p>
-                    ) : null}
-                    {comparisonState.data.requires_reapproval ? (
-                      <p className="text-amber-800">SQL reparada requer nova aprovação.</p>
                     ) : null}
                     <p className="font-medium text-steel">
-                      Paridade financeira e equivalência numérica não comprovadas.
+                      Comparação estrutural somente. Paridade financeira e equivalência
+                      numérica não comprovadas; nenhuma consulta executada por este comparador.
                     </p>
                   </div>
                 ) : null}
@@ -499,6 +502,52 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
         )}
       </div>
     </section>
+  );
+}
+
+function SqlComparisonStage({
+  label,
+  stage
+}: {
+  label: string;
+  stage: ComparisonStage;
+}) {
+  if (stage.status !== "ok") {
+    return (
+      <div className="rounded-md border border-slate-200 p-3">
+        <p className="font-semibold text-ink">{label}</p>
+        <p className="text-steel">
+          {stage.status === "not_recorded" ? "SQL não registrada nesta etapa."
+            : stage.status === "rejected" ? "SQL não comparável com segurança."
+              : "Comparação desta etapa indisponível."}
+        </p>
+      </div>
+    );
+  }
+  const info = stage.data;
+  const verdict = info.verdict === "normalized_sql_match"
+    ? "Consultas normalizadas coincidem"
+    : info.verdict === "structural_differences"
+      ? "Divergências estruturais identificadas"
+      : "Comparação inconclusiva";
+  return (
+    <div className="space-y-2 rounded-md border border-slate-200 p-3">
+      <p className="font-semibold text-ink">{label}</p>
+      <p>{verdict}</p>
+      {info.different_facets.length ? (
+        <p>
+          Aspectos diferentes: {info.different_facets
+            .map((facet) => SQL_COMPARISON_LABELS[facet] ?? "Outros")
+            .join(", ")}
+        </p>
+      ) : null}
+      {!info.tenant_identity_attested ? (
+        <p className="text-amber-800">Isolamento por tenant ainda não comprovado.</p>
+      ) : null}
+      {info.requires_reapproval ? (
+        <p className="text-amber-800">SQL reparada requer nova aprovação.</p>
+      ) : null}
+    </div>
   );
 }
 

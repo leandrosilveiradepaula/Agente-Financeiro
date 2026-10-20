@@ -47,35 +47,65 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   const { run } = access;
-  if (!run.user_id || !run.pergunta || !run.sql_generated) {
+  if (!run.user_id || !run.pergunta ||
+      (!run.sql_generated && !run.sql_executed)) {
     return NextResponse.json(
       { success: false, error: "official_sql_or_identity_missing" },
       { status: 409 }
     );
   }
-  const result = await compareLangGraphShadowSql({
-    agentRunId: id,
-    shadowRecordId,
-    question: run.pergunta,
-    officialSql: run.sql_generated,
-    originalUserId: run.user_id
-  });
+
+  // Two independent, read-only comparisons against the SAME persisted
+  // LangGraph generation, never two requests to generate or execute SQL.
+  // The old n8n workflow can rewrite SQL between these two stored stages.
+  async function compareStage(officialSql: string | null) {
+    if (!officialSql?.trim()) return { status: "not_recorded" as const };
+    const result = await compareLangGraphShadowSql({
+      agentRunId: id,
+      shadowRecordId,
+      question: run.pergunta,
+      officialSql,
+      originalUserId: run.user_id!
+    });
+    if (result.status === "ok") {
+      return { status: "ok" as const, data: result.data };
+    }
+    return { status: result.status === "rejected"
+      ? "rejected" as const : "unavailable" as const };
+  }
+
+  const [generated, executed] = await Promise.all([
+    compareStage(run.sql_generated),
+    compareStage(run.sql_executed)
+  ]);
 
   logger.info("admin_shadow_sql_comparison.read_completed", {
     requestId, agentRunId: id, shadowRecordId,
-    status: result.status, actorProfile: session.userProfile,
+    generatedStatus: generated.status,
+    executedStatus: executed.status,
+    actorProfile: session.userProfile,
     scope: access.scope
   });
 
-  if (result.status === "ok") {
+  if (generated.status !== "ok" && executed.status !== "ok") {
     return NextResponse.json(
-      { success: true, comparison: result.data },
-      { headers: { "Cache-Control": "no-store" } }
+      { success: false, error: "shadow_comparison_unavailable" },
+      { status: 503 }
     );
   }
-  return NextResponse.json(
-    { success: false, error: result.status === "rejected" ?
-      "shadow_comparison_not_possible" : "shadow_comparison_unavailable" },
-    { status: result.status === "rejected" ? 409 : 503 }
-  );
+
+  // This flag compares stored SQL text, not accounting meaning; it may
+  // include purely cosmetic changes.
+  const officialSqlTextChanged = run.sql_generated && run.sql_executed
+    ? run.sql_generated !== run.sql_executed
+    : null;
+
+  return NextResponse.json({
+    success: true,
+    comparison: {
+      generated,
+      executed,
+      official_sql_text_changed: officialSqlTextChanged
+    }
+  }, { headers: { "Cache-Control": "no-store" } });
 }

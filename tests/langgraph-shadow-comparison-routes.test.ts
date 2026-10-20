@@ -18,12 +18,21 @@ describe("Admin SQL comparison read boundary", () => {
   });
 
   it("only sends database-owned SQL and principal after authorization", () => {
-    expect(route).toContain("officialSql: run.sql_generated");
+    expect(route).toContain("compareStage(run.sql_generated)");
+    expect(route).toContain("compareStage(run.sql_executed)");
     expect(route).toContain("question: run.pergunta");
     expect(route).toContain("originalUserId: run.user_id");
     expect(route).toContain("agentRunId: id");
     expect(route).not.toContain("request.json()");
     expect(route).not.toContain("run.sql_executed");
+  });
+
+  it("compares generated and executed SQL independently, without executing either", () => {
+    expect(route).toContain("const [generated, executed] = await Promise.all(");
+    expect(route).toContain("official_sql_text_changed: officialSqlTextChanged");
+    expect(route).toContain("generated,");
+    expect(route).toContain("executed,");
+    expect(route).not.toContain("request.json()");
   });
 
   it("does not execute SQL, update records, or return raw SQL", () => {

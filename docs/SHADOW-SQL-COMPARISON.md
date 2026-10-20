@@ -33,3 +33,18 @@ Não realizar merge ou deploy sem garantir que o serviço LangGraph
 suporta a nova rota. No momento o GitHub Actions do Produto não pode
 iniciar runner por bloqueio de faturamento da conta; compilação da
 Preview não substitui Vitest. Nenhum teste pago de LLM é necessário.
+
+
+## SQL gerada versus SQL registrada como executada
+
+O Produto preserva dois campos distintos: `sql_generated` e
+`sql_executed`. O endpoint autorizado agora compara **ambos**, quando
+existentes, com a mesma geração Shadow persistida (apenas leitura). Não
+assumir que a SQL gerada chegou intacta ao executor: o workflow n8n oficial
+pode modificar filtros no cleaner. O campo `official_sql_text_changed`
+indica exclusivamente uma diferença textual entre esses campos, inclusive
+se for apenas espaços ou comentários, e não determina erro financeiro.
+
+Quando não existe SQL executada, a interface mostra "SQL não registrada
+nesta etapa"; quando uma etapa não pode ser comparada com segurança,
+a tela deixa explícita a limitação. Nenhum valor SQL é exposto ao browser.
