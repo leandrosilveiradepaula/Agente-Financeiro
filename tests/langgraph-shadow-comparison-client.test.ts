@@ -107,6 +107,69 @@ describe("post-generation SQL comparison transport", () => {
     }
   });
 
+
+  it("attests signed provider/model identifiers without returning raw provider payload", async () => {
+    const compare = {
+      ...safeComparison,
+      shadow_generator_provider: "provider-neutral",
+      shadow_generator_model: "model-v3",
+      shadow_repair_provider: null,
+      shadow_repair_model: null,
+      generator_identity_attested: true,
+      repair_identity_attested: true,
+      token_usage: { secret: "never-expose" }
+    };
+    const fetchImpl = vi.fn().mockResolvedValue(response({
+      contract_version:"1",agent_run_id:input.agentRunId,status:"success",
+      metadata:{comparison:compare}
+    }));
+    const result=await compareLangGraphShadowSql(input,{env,fetchImpl});
+    expect(result.status).toBe("ok");
+    if(result.status!=="ok") throw Error("Expected attestation");
+    expect(result.data.shadow_generator_provider).toBe("provider-neutral");
+    expect(result.data.shadow_generator_model).toBe("model-v3");
+    expect(result.data.generator_identity_attested).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("token_usage");
+    expect(JSON.stringify(result)).not.toContain("never-expose");
+  });
+
+  it("keeps previous comparison payloads explicitly unattested", async () => {
+    const fetchImpl=vi.fn().mockResolvedValue(response({
+      contract_version:"1",status:"success",agent_run_id:input.agentRunId,
+      metadata:{comparison:safeComparison}
+    }));
+    const result=await compareLangGraphShadowSql(input,{env,fetchImpl});
+    expect(result.status).toBe("ok");
+    if(result.status!=="ok") throw Error("Expected safe fallback");
+    expect(result.data.shadow_generator_provider).toBe(null);
+    expect(result.data.generator_identity_attested).toBe(false);
+  });
+
+  it("rejects partial, forged or unsafe provider identity evidence", async () => {
+    const base={
+      ...safeComparison,
+      shadow_generator_provider:"provider-neutral",
+      shadow_generator_model:"model-v3",
+      shadow_repair_provider:null,
+      shadow_repair_model:null,
+      generator_identity_attested:true,
+      repair_identity_attested:true
+    };
+    for(const bad of [
+      {...base,shadow_generator_model:"Bearer secret"},
+      {...base,generator_identity_attested:false},
+      {...base,shadow_generator_model:123},
+      {...base,shadow_repair_provider:undefined}
+    ]) {
+      const fetchImpl=vi.fn().mockResolvedValue(response({
+        contract_version:"1",status:"success",agent_run_id:input.agentRunId,
+        metadata:{comparison:bad}
+      }));
+      const result=await compareLangGraphShadowSql(input,{env,fetchImpl});
+      expect(result.status).toBe("invalid_response");
+    }
+  });
+
   it("does not send requests with missing token or invalid payloads", async () => {
     const fetchImpl=vi.fn();
     expect((await compareLangGraphShadowSql(input,{

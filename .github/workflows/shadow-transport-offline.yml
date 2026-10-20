@@ -5,6 +5,8 @@ on:
     paths:
       - "lib/langgraph-shadow-client.ts"
       - "lib/langgraph-shadow-comparison-client.ts"
+      - "lib/shadow-provider-parity.ts"
+      - "app/api/admin/runs/**/shadow-runs/route.ts"
       - "app/api/admin/runs/**/shadow-comparison/route.ts"
       - "components/ShadowRunPanel.tsx"
       - "tests/langgraph-shadow-*.test.ts"
@@ -14,6 +16,8 @@ on:
     paths:
       - "lib/langgraph-shadow-client.ts"
       - "lib/langgraph-shadow-comparison-client.ts"
+      - "lib/shadow-provider-parity.ts"
+      - "app/api/admin/runs/**/shadow-runs/route.ts"
       - "app/api/admin/runs/**/shadow-comparison/route.ts"
       - "components/ShadowRunPanel.tsx"
       - "tests/langgraph-shadow-*.test.ts"
@@ -38,4 +42,4 @@ jobs:
       - name: TypeScript contract
         run: npm run lint
       - name: Shadow tests (no real services)
-        run: npm test -- tests/langgraph-shadow-client.test.ts tests/langgraph-shadow-route-behavior.test.ts tests/langgraph-shadow-local-e2e.test.ts tests/langgraph-shadow-comparison-client.test.ts tests/langgraph-shadow-comparison-routes.test.ts
+        run: npm test -- tests/langgraph-shadow-client.test.ts tests/langgraph-shadow-route-behavior.test.ts tests/langgraph-shadow-local-e2e.test.ts tests/langgraph-shadow-comparison-client.test.ts tests/langgraph-shadow-comparison-routes.test.ts tests/langgraph-shadow-provider-parity.test.ts

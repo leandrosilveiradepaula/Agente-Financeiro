@@ -4,6 +4,7 @@ import {
   compareLangGraphShadowSql,
   isShadowSqlComparisonEnabled
 } from "@/lib/langgraph-shadow-comparison-client";
+import { assessRecordedProviderIdentity } from "@/lib/shadow-provider-parity";
 import { requireAgentSession } from "@/lib/server-auth";
 import { logger } from "@/lib/server-logger";
 
@@ -70,7 +71,14 @@ export async function GET(request: Request, context: RouteContext) {
       originalUserId: run.user_id!
     });
     if (result.status === "ok") {
-      return { status: "ok" as const, data: result.data };
+      const provider_identity_status = assessRecordedProviderIdentity({
+        provider: run.llm_provider,
+        model: run.llm_model
+      }, result.data);
+      return { status: "ok" as const, data: {
+        ...result.data,
+        provider_identity_status
+      } };
     }
     return { status: result.status === "rejected"
       ? "rejected" as const : "unavailable" as const };

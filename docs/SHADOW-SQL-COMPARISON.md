@@ -70,3 +70,35 @@ comparação quando a flag está ativa no backend. Com a flag ausente ou
 desativada, mostra texto explicativo em vez de um botão inutilizável.
 Isso evita criar uma ação que parece disponível antes da configuração
 operacional e dos gates necessários.
+
+## Evidência de igualdade de LLM, sem inventar aliases
+
+O comparador LangGraph fornece apenas identificadores sanitizados do
+provedor e modelo **realmente utilizados** na geração Shadow (e no reparo,
+quando houver). O backend do Produto confronta esses identificadores
+com `llm_provider` e `llm_model` persistidos no run oficial e responde:
+
+- `identifiers_matched`: identificadores idênticos, inclusive reparador
+  quando houve reparo; NÃO comprova resultado, contexto ou SQL equivalentes.
+- `identifier_mismatch`: rótulos registrados diferentes; sem prova de
+  mesmo modelo, mesmo que dois rótulos possam ser aliases.
+- `unattested`: falta algum identificador ou comprovação do reparador;
+  nunca inferir Gemini pela configuração default.
+
+Nenhum valor oficial é repassado ao gerador, planejador ou à LLM Shadow
+para produzir a SQL. Essa avaliação acontece estritamente **após** a
+geração e a persistência da evidência. Não contém tabela, métrica,
+cliente, threshold ou SQL casuístico.
+
+## Evidência Shadow assíncrona
+
+A geração Shadow é agendada após a resposta oficial. A consulta inicial
+ao histórico pode ocorrer antes de o LangGraph persistir a evidência.
+Quando a flag `LANGGRAPH_SHADOW_ENABLED` está ativa para a instância, a
+interface realiza novas **leituras** do histórico, no máximo 12 tentativas
+com intervalo de 8 segundos, encerrando após resultado, erro ou unmount.
+A consulta não aciona novamente o gerador, Gemini, n8n ou execução SQL.
+
+Com o Shadow desativado, não há polling adicional. Resultado ausente
+após a janela significa somente **não comprovado**, não sucesso nem falha
+de geração; é necessário investigar logs e IDs antes de atestar paridade.

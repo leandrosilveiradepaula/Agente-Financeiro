@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authorizeAdminRunReadAccess } from "@/lib/admin-run-access";
 import { listLangGraphShadowRuns } from "@/lib/langgraph-shadow-read-client";
+import { isLangGraphShadowEnabled } from "@/lib/langgraph-shadow-client";
 import { isShadowSqlComparisonEnabled } from "@/lib/langgraph-shadow-comparison-client";
 import { requireAgentSession } from "@/lib/server-auth";
 import { logger } from "@/lib/server-logger";
@@ -86,7 +87,8 @@ export async function GET(request: Request, context: RouteContext) {
     return NextResponse.json({
       success: true,
       shadow_runs: result.data,
-      comparison_enabled: isShadowSqlComparisonEnabled()
+      comparison_enabled: isShadowSqlComparisonEnabled(),
+      shadow_enabled: isLangGraphShadowEnabled()
     });
   }
 
@@ -94,7 +96,8 @@ export async function GET(request: Request, context: RouteContext) {
     return NextResponse.json({
       success: true,
       shadow_runs: [],
-      comparison_enabled: isShadowSqlComparisonEnabled()
+      comparison_enabled: isShadowSqlComparisonEnabled(),
+      shadow_enabled: isLangGraphShadowEnabled()
     });
   }
 

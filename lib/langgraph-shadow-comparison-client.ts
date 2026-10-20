@@ -24,6 +24,12 @@ export type ShadowSqlComparison = {
   shadow_record_id: string;
   comparison_version: string;
   shadow_context_version: string;
+  shadow_generator_provider: string | null;
+  shadow_generator_model: string | null;
+  shadow_repair_provider: string | null;
+  shadow_repair_model: string | null;
+  generator_identity_attested: boolean;
+  repair_identity_attested: boolean;
 };
 
 export type CompareShadowResult =
@@ -132,6 +138,36 @@ function parseComparison(value: unknown, request: CompareShadowRequest): ShadowS
       typeof comparison.shadow_context_version !== "string") {
     return null;
   }
+  const identityFields = [
+    "shadow_generator_provider", "shadow_generator_model",
+    "shadow_repair_provider", "shadow_repair_model",
+    "generator_identity_attested", "repair_identity_attested"
+  ] as const;
+  const present = identityFields.filter((key) =>
+    Object.prototype.hasOwnProperty.call(comparison, key)
+  );
+  // The previous API has no witness fields; report unattested instead of
+  // blocking structural comparisons. Partial/malformed witness records fail.
+  const hasWitness = present.length === identityFields.length;
+  if (present.length > 0 && !hasWitness) return null;
+  const safeProviderId = new RegExp("^[A-Za-z0-9][A-Za-z0-9._:+/-]{0,127}$");
+  const identities = identityFields.slice(0, 4).map((key) => {
+    const value = hasWitness ? comparison[key] : null;
+    return value === null ? null :
+      typeof value === "string" && safeProviderId.test(value)
+        && !/(bearer|apikey|api_key|secret|token)/i.test(value)
+        ? value : false;
+  });
+  if (identities.some((value) => value === false)) return null;
+  const generationAttested = hasWitness &&
+    comparison.generator_identity_attested === true;
+  const repairAttested = hasWitness &&
+    comparison.repair_identity_attested === true;
+  if (hasWitness &&
+      (typeof comparison.generator_identity_attested !== "boolean" ||
+       typeof comparison.repair_identity_attested !== "boolean" ||
+       generationAttested !== Boolean(identities[0] && identities[1]))) return null;
+
   return {
     verdict: comparison.verdict as ShadowSqlComparison["verdict"],
     different_facets: [...new Set(comparison.different_facets as string[])],
@@ -143,7 +179,13 @@ function parseComparison(value: unknown, request: CompareShadowRequest): ShadowS
     requires_reapproval: comparison.requires_reapproval as boolean,
     shadow_record_id: request.shadowRecordId,
     comparison_version: (comparison.comparison_version as string).slice(0, 128),
-    shadow_context_version: comparison.shadow_context_version.slice(0, 128)
+    shadow_context_version: comparison.shadow_context_version.slice(0, 128),
+    shadow_generator_provider: identities[0] as string | null,
+    shadow_generator_model: identities[1] as string | null,
+    shadow_repair_provider: identities[2] as string | null,
+    shadow_repair_model: identities[3] as string | null,
+    generator_identity_attested: generationAttested,
+    repair_identity_attested: repairAttested
   };
 }
 

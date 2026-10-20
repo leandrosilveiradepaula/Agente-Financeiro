@@ -41,6 +41,10 @@ type ComparisonSqlAssessment = {
   financial_parity_proven: false;
   real_sql_executed: false;
   requires_reapproval: boolean;
+  provider_identity_status:
+    | "identifiers_matched"
+    | "identifier_mismatch"
+    | "unattested";
 };
 
 type ComparisonStage =
@@ -193,13 +197,14 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
   useEffect(() => {
     const controller = new AbortController();
     let active = true;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
     setListState({ status: "loading", runs: [] });
     setSelectedShadowId(null);
     setComparisonEnabled(false);
     setVisualizationState({ status: "idle", data: null });
 
-    async function loadShadowRuns() {
+    async function loadShadowRuns(attempt = 0) {
       try {
         const response = await fetch(
           `/api/admin/runs/${encodeURIComponent(agentRunId)}/shadow-runs?limit=20`,
@@ -243,6 +248,7 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
         const data = (await response.json()) as {
           shadow_runs?: ShadowRunSummary[];
           comparison_enabled?: boolean;
+          shadow_enabled?: boolean;
         };
         const runs = data.shadow_runs ?? [];
 
@@ -250,11 +256,21 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
         setComparisonEnabled(data.comparison_enabled === true);
 
         if (runs.length === 0) {
+          // The post-response Shadow dispatch can still be generating SQL.
+          // Only re-read persisted evidence; never repeat model/SQL execution.
+          const waitingForShadow = data.shadow_enabled === true && attempt < 12;
           setListState({
             status: "empty",
             runs: [],
-            message: "Nenhum Shadow Run encontrado para esta execucao."
+            message: waitingForShadow
+              ? "Aguardando evidencias do Shadow; atualizacao automatica em andamento."
+              : "Nenhum Shadow Run encontrado para esta execucao."
           });
+          if (waitingForShadow) {
+            retryTimer = setTimeout(() => {
+              if (active) void loadShadowRuns(attempt + 1);
+            }, 8000);
+          }
           return;
         }
 
@@ -274,6 +290,7 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
 
     return () => {
       active = false;
+      if (retryTimer) clearTimeout(retryTimer);
       controller.abort();
     };
   }, [agentRunId]);
@@ -552,6 +569,21 @@ function SqlComparisonStage({
             .join(", ")}
         </p>
       ) : null}
+      {info.provider_identity_status === "identifiers_matched" ? (
+        <p className="text-sm text-steel">
+          Identificadores de provedor/modelo coincidem nos dois registros.
+          Isso não comprova equivalência de resultados.
+        </p>
+      ) : info.provider_identity_status === "identifier_mismatch" ? (
+        <p className="text-amber-800">
+          Provedor/modelo não coincidem literalmente: a comparação Gemini × Gemini
+          ainda não pode ser atestada.
+        </p>
+      ) : (
+        <p className="text-amber-800">
+          Provedor/modelo de ambos os caminhos ainda não estão comprovados.
+        </p>
+      )}
       {!info.tenant_identity_attested ? (
         <p className="text-amber-800">Isolamento por tenant ainda não comprovado.</p>
       ) : null}
