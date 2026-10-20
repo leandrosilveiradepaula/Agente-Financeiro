@@ -102,3 +102,20 @@ A consulta não aciona novamente o gerador, Gemini, n8n ou execução SQL.
 Com o Shadow desativado, não há polling adicional. Resultado ausente
 após a janela significa somente **não comprovado**, não sucesso nem falha
 de geração; é necessário investigar logs e IDs antes de atestar paridade.
+
+## Comparação de intenção observada, sem hardcode
+
+O Produto já armazena `detected_intent` retornado pelo n8n oficial.
+Na comparação pós-geração, a API protegida envia opcionalmente esse
+identificador de intenção — **não ao gerador** — ao comparador LangGraph,
+que obtém sua própria intenção da evidência assinada. A interface
+recebe apenas um status `identifiers_matched`, `identifier_mismatch`
+ou `unattested`, sem nomes de intenções, SQL ou valores financeiros.
+Rótulos diferentes não provam conceitos contábeis divergentes; possíveis
+aliases são definidos no contexto versionado, jamais hardcoded no motor.
+
+A exportação de 68 nós do n8n não transmite seu plano integral ao
+Produto; portanto este status atesta apenas os **rótulos** de intenção,
+e não paridade de métricas, dimensões, filtros de negócio ou plano.
+Essas evidências de planejamento continuam pendentes de instrumentação
+autorizada no fluxo oficial. Sem isso, não declarar G1/G3 concluídos.

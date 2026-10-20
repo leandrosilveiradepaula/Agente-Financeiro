@@ -21,6 +21,7 @@ describe("Admin SQL comparison read boundary", () => {
     expect(route).toContain("compareStage(run.sql_generated)");
     expect(route).toContain("compareStage(run.sql_executed)");
     expect(route).toContain("question: run.pergunta");
+    expect(route).toContain("officialIntent: run.detected_intent");
     expect(route).toContain("assessRecordedProviderIdentity({");
     expect(route).toContain("provider: run.llm_provider");
     expect(route).toContain("model: run.llm_model");

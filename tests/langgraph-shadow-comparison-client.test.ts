@@ -14,6 +14,7 @@ const input = {
   shadowRecordId: "shadow-record-1",
   question: "Generic novel analysis",
   officialSql: "SELECT SUM(qty) FROM example_records WHERE period_id = 12",
+  officialIntent: "intent-example",
   originalUserId: "user-one"
 };
 
@@ -21,6 +22,7 @@ const safeComparison = {
   comparison_version: "v1.0.0-post-generation-structural",
   shadow_record_id: input.shadowRecordId,
   verdict: "structural_differences",
+  intent_label_status: "identifiers_matched",
   different_facets: ["predicates"],
   normalized_sql_match: false,
   unsupported_predicates_present: false,
@@ -67,6 +69,7 @@ describe("post-generation SQL comparison transport", () => {
       contract_version: "1", agent_run_id: input.agentRunId,
       shadow_record_id: input.shadowRecordId,
       question: input.question, official_sql: input.officialSql,
+      official_detected_intent: input.officialIntent,
       principal: {id: input.originalUserId}
     });
     expect(JSON.stringify(body)).not.toContain("test-s2s-token");
@@ -170,12 +173,35 @@ describe("post-generation SQL comparison transport", () => {
     }
   });
 
+  it("accepts comparison of intent labels but rejects forged proof statuses", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(response({
+      contract_version: "1", agent_run_id: input.agentRunId,
+      status: "success",
+      metadata: {comparison: {...safeComparison, intent_label_status: "identifier_mismatch"}}
+    }));
+    const result = await compareLangGraphShadowSql(input, {env, fetchImpl});
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.intent_label_status).toBe("identifier_mismatch");
+    }
+    const invalid = vi.fn().mockResolvedValue(response({
+      contract_version: "1", agent_run_id: input.agentRunId,
+      status: "success",
+      metadata: {comparison: {...safeComparison, intent_label_status: "SQL_RAW_CONTENT"}}
+    }));
+    expect((await compareLangGraphShadowSql(input, {env, fetchImpl: invalid})).status)
+      .toBe("invalid_response");
+  });
+
   it("does not send requests with missing token or invalid payloads", async () => {
     const fetchImpl=vi.fn();
     expect((await compareLangGraphShadowSql(input,{
       env:{...env,LANGGRAPH_S2S_TOKEN:""},fetchImpl
     })).status).toBe("configuration_error");
     expect((await compareLangGraphShadowSql({...input,officialSql:""},{
+      env,fetchImpl
+    })).status).toBe("configuration_error");
+    expect((await compareLangGraphShadowSql({...input,officialIntent:"x".repeat(129)},{
       env,fetchImpl
     })).status).toBe("configuration_error");
     expect(fetchImpl).not.toHaveBeenCalled();

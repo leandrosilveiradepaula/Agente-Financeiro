@@ -68,6 +68,7 @@ export async function GET(request: Request, context: RouteContext) {
       shadowRecordId,
       question: run.pergunta,
       officialSql,
+      officialIntent: run.detected_intent,
       originalUserId: run.user_id!
     });
     if (result.status === "ok") {

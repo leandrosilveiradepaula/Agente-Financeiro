@@ -13,6 +13,7 @@ type Env = Record<string, string | undefined>;
 
 export type ShadowSqlComparison = {
   verdict: "normalized_sql_match" | "structural_differences" | "inconclusive";
+  intent_label_status: "identifiers_matched" | "identifier_mismatch" | "unattested";
   different_facets: string[];
   normalized_sql_match: boolean;
   unsupported_predicates_present: boolean;
@@ -41,6 +42,7 @@ export type CompareShadowRequest = {
   shadowRecordId: string;
   question: string;
   officialSql: string;
+  officialIntent?: string | null;
   originalUserId: string;
   organizationId?: string;
 };
@@ -61,6 +63,7 @@ export async function compareLangGraphShadowSql(
     !validString(input.agentRunId, 128) || !validString(input.shadowRecordId, 128) ||
     !validString(input.question, 16000) || !validString(input.officialSql, 262144) ||
     !validString(input.originalUserId, 256) ||
+    (input.officialIntent != null && !validString(input.officialIntent, 128)) ||
     (input.organizationId !== undefined && !validString(input.organizationId, 256))
   ) return { status: "configuration_error" };
 
@@ -84,6 +87,9 @@ export async function compareLangGraphShadowSql(
     shadow_record_id: input.shadowRecordId,
     question: input.question,
     official_sql: input.officialSql,
+    ...(input.officialIntent?.trim()
+      ? { official_detected_intent: input.officialIntent.trim() }
+      : {}),
     principal: {
       id: input.originalUserId,
       ...(input.organizationId ? { organization_id: input.organizationId } : {})
@@ -138,6 +144,15 @@ function parseComparison(value: unknown, request: CompareShadowRequest): ShadowS
       typeof comparison.shadow_context_version !== "string") {
     return null;
   }
+  const validIntentStatuses = new Set([
+    "identifiers_matched", "identifier_mismatch", "unattested"
+  ]);
+  const intentStatus = Object.prototype.hasOwnProperty.call(
+    comparison, "intent_label_status"
+  ) ? comparison.intent_label_status : "unattested";
+  if (typeof intentStatus !== "string" || !validIntentStatuses.has(intentStatus)) {
+    return null;
+  }
   const identityFields = [
     "shadow_generator_provider", "shadow_generator_model",
     "shadow_repair_provider", "shadow_repair_model",
@@ -170,6 +185,7 @@ function parseComparison(value: unknown, request: CompareShadowRequest): ShadowS
 
   return {
     verdict: comparison.verdict as ShadowSqlComparison["verdict"],
+    intent_label_status: intentStatus as ShadowSqlComparison["intent_label_status"],
     different_facets: [...new Set(comparison.different_facets as string[])],
     normalized_sql_match: comparison.normalized_sql_match as boolean,
     unsupported_predicates_present: comparison.unsupported_predicates_present as boolean,

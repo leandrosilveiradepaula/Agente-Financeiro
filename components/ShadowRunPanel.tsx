@@ -35,6 +35,7 @@ type VisualizationState =
 
 type ComparisonSqlAssessment = {
   verdict: "normalized_sql_match" | "structural_differences" | "inconclusive";
+  intent_label_status: "identifiers_matched" | "identifier_mismatch" | "unattested";
   different_facets: string[];
   tenant_identity_attested: boolean;
   same_data_snapshot_attested: false;
@@ -562,6 +563,13 @@ function SqlComparisonStage({
     <div className="space-y-2 rounded-md border border-slate-200 p-3">
       <p className="font-semibold text-ink">{label}</p>
       <p>{verdict}</p>
+      <p>
+        Intenção detectada: {info.intent_label_status === "identifiers_matched"
+          ? "identificadores coincidem"
+          : info.intent_label_status === "identifier_mismatch"
+            ? "identificadores diferentes (sem concluir divergência contábil)"
+            : "sem evidência suficiente"}
+      </p>
       {info.different_facets.length ? (
         <p>
           Aspectos diferentes: {info.different_facets
