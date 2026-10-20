@@ -4,12 +4,18 @@ on:
   pull_request:
     paths:
       - "lib/langgraph-shadow-client.ts"
+      - "lib/langgraph-shadow-comparison-client.ts"
+      - "app/api/admin/runs/**/shadow-comparison/route.ts"
+      - "components/ShadowRunPanel.tsx"
       - "tests/langgraph-shadow-*.test.ts"
       - ".github/workflows/shadow-transport-offline.yml"
   push:
     branches: [main]
     paths:
       - "lib/langgraph-shadow-client.ts"
+      - "lib/langgraph-shadow-comparison-client.ts"
+      - "app/api/admin/runs/**/shadow-comparison/route.ts"
+      - "components/ShadowRunPanel.tsx"
       - "tests/langgraph-shadow-*.test.ts"
       - ".github/workflows/shadow-transport-offline.yml"
 
@@ -32,4 +38,4 @@ jobs:
       - name: TypeScript contract
         run: npm run lint
       - name: Shadow tests (no real services)
-        run: npm test -- tests/langgraph-shadow-client.test.ts tests/langgraph-shadow-route-behavior.test.ts tests/langgraph-shadow-local-e2e.test.ts
+        run: npm test -- tests/langgraph-shadow-client.test.ts tests/langgraph-shadow-route-behavior.test.ts tests/langgraph-shadow-local-e2e.test.ts tests/langgraph-shadow-comparison-client.test.ts tests/langgraph-shadow-comparison-routes.test.ts

@@ -33,6 +33,32 @@ type VisualizationState =
   | { status: "not_found"; data: null; message: string }
   | { status: "error"; data: null; message: string };
 
+type ComparisonData = {
+  verdict: "normalized_sql_match" | "structural_differences" | "inconclusive";
+  different_facets: string[];
+  tenant_identity_attested: boolean;
+  same_data_snapshot_attested: false;
+  financial_parity_proven: false;
+  real_sql_executed: false;
+  requires_reapproval: boolean;
+};
+
+type ComparisonState =
+  | { status: "idle" | "loading"; shadowId: string | null }
+  | { status: "ready"; shadowId: string; data: ComparisonData }
+  | { status: "error"; shadowId: string; message: string };
+
+const SQL_COMPARISON_LABELS: Record<string, string> = {
+  physical_tables: "Tabelas",
+  joined_relations: "Relacionamentos e joins",
+  predicates: "Filtros e valores",
+  projections: "Colunas e expressões",
+  groupings: "Agrupamentos",
+  orderings: "Ordenação",
+  functions: "Funções e agregações",
+  query_shape: "Estrutura da consulta"
+};
+
 const METADATA_LABELS = {
   attempt: "Tentativa",
   attempts: "Tentativas",
@@ -145,6 +171,9 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
     runs: []
   });
   const [selectedShadowId, setSelectedShadowId] = useState<string | null>(null);
+  const [comparisonState, setComparisonState] = useState<ComparisonState>({
+    status: "idle", shadowId: null
+  });
   const [visualizationState, setVisualizationState] = useState<VisualizationState>({
     status: "idle",
     data: null
@@ -333,6 +362,39 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
     [listState.runs, selectedShadowId]
   );
 
+  async function compareSelectedRun() {
+    if (!selectedShadowId || selectedRun?.event_type !== "generate") return;
+    const shadowId = selectedShadowId;
+    setComparisonState({ status: "loading", shadowId });
+    try {
+      const endpoint = "/api/admin/runs/" + encodeURIComponent(agentRunId) +
+        "/shadow-comparison?shadow_record_id=" + encodeURIComponent(shadowId);
+      const response = await fetch(endpoint, { cache: "no-store" });
+      if (!response.ok) {
+        setComparisonState({
+          status: "error", shadowId,
+          message: response.status === 503
+            ? "Comparador indisponível até ativação controlada."
+            : response.status === 403
+              ? "Seu perfil não está autorizado a comparar SQL."
+              : "Não foi possível comparar as duas consultas desta execução."
+        });
+        return;
+      }
+      const body = (await response.json()) as {
+        success?: boolean;
+        comparison?: ComparisonData;
+      };
+      if (body.success !== true || !body.comparison) throw Error("invalid comparison");
+      setComparisonState({ status: "ready", shadowId, data: body.comparison });
+    } catch {
+      setComparisonState({
+        status: "error", shadowId,
+        message: "Não foi possível obter a comparação SQL."
+      });
+    }
+  }
+
   return (
     <section className="rounded-md border border-slate-200 p-4">
       <div className="flex flex-col justify-between gap-3 border-b border-slate-100 pb-3 md:flex-row md:items-center">
@@ -367,6 +429,61 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
             />
 
             {selectedRun ? <ShadowRunSummaryCards run={selectedRun} /> : null}
+
+            {selectedRun?.event_type === "generate" ? (
+              <div className="space-y-2 rounded-md border border-slate-200 p-3">
+                <button
+                  type="button"
+                  onClick={compareSelectedRun}
+                  disabled={comparisonState.status === "loading" &&
+                    comparisonState.shadowId === selectedShadowId}
+                  className="rounded-md bg-slate-800 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  Comparar SQL com oficial (sem executar)
+                </button>
+                <p className="text-xs text-steel">
+                  Compara consultas já geradas. Não executa SQL e não comprova equivalência financeira.
+                </p>
+                {comparisonState.shadowId === selectedShadowId &&
+                 comparisonState.status === "loading" ? (
+                  <StateMessage tone="info" text="Comparando estruturas SQL..." />
+                ) : null}
+                {comparisonState.shadowId === selectedShadowId &&
+                 comparisonState.status === "error" ? (
+                  <StateMessage tone="warning" text={comparisonState.message} />
+                ) : null}
+                {comparisonState.shadowId === selectedShadowId &&
+                 comparisonState.status === "ready" ? (
+                  <div className="space-y-2 text-sm">
+                    <p className="font-semibold text-ink">
+                      {comparisonState.data.verdict === "normalized_sql_match"
+                        ? "Consultas normalizadas coincidem"
+                        : comparisonState.data.verdict === "structural_differences"
+                          ? "Divergências estruturais identificadas"
+                          : "Comparação inconclusiva"}
+                    </p>
+                    {comparisonState.data.different_facets.length ? (
+                      <p>
+                        Aspectos diferentes: {comparisonState.data.different_facets
+                          .map((facet) => SQL_COMPARISON_LABELS[facet] ?? "Outros")
+                          .join(", ")}
+                      </p>
+                    ) : null}
+                    {!comparisonState.data.tenant_identity_attested ? (
+                      <p className="text-amber-800">
+                        Isolamento por tenant ainda não comprovado para esta execução.
+                      </p>
+                    ) : null}
+                    {comparisonState.data.requires_reapproval ? (
+                      <p className="text-amber-800">SQL reparada requer nova aprovação.</p>
+                    ) : null}
+                    <p className="font-medium text-steel">
+                      Paridade financeira e equivalência numérica não comprovadas.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {visualizationState.status === "loading" ? (
               <StateMessage tone="info" text="Carregando visualizacao Shadow..." />
