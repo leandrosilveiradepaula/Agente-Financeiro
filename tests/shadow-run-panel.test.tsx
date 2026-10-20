@@ -212,6 +212,72 @@ describe("ShadowRunPanel", () => {
     });
   });
 
+  it("does not show a comparison button while disabled by the backend", async () => {
+    const view = render(<ShadowRunPanel agentRunId={agentRunId} />);
+    await vi.waitFor(() => {
+      expect(view.textContent).toContain("A comparação de SQL está desativada neste ambiente.");
+    });
+    expect(view.textContent).not.toContain("Comparar SQLs registradas (sem executar)");
+  });
+
+  it("shows sanitized post-generation comparison from persisted evidence only", async () => {
+    const safeData = {
+      verdict: "structural_differences",
+      different_facets: ["predicates"],
+      intent_label_status: "unattested",
+      provider_identity_status: "unattested",
+      tenant_identity_attested: false,
+      requires_reapproval: false,
+      financial_parity_proven: false,
+      real_sql_executed: false
+    };
+    const fetchMock = mockFetch(async (url) => {
+      if (url.includes("/shadow-runs?")) {
+        return jsonResponse(200, {
+          shadow_runs: [generateShadow],
+          comparison_enabled: true,
+          shadow_enabled: false
+        });
+      }
+      if (url.includes("/shadow-comparison?")) {
+        return jsonResponse(200, {
+          success: true,
+          comparison: {
+            generated: {status: "ok", data: safeData},
+            executed: {status: "not_recorded"},
+            official_sql_text_changed: null
+          }
+        });
+      }
+      if (url.includes("shadow-generate")) {
+        return jsonResponse(200, {visualization: generateVisualization});
+      }
+      return jsonResponse(404, {error: "not_found"});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const view = render(<ShadowRunPanel agentRunId={agentRunId} />);
+    await vi.waitFor(() => {
+      expect(view.textContent).toContain("Comparar SQLs registradas (sem executar)");
+    });
+    const compare = Array.from(view.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Comparar SQLs registradas")
+    );
+    expect(compare).toBeTruthy();
+    act(() => {
+      compare?.dispatchEvent(new MouseEvent("click", {bubbles: true}));
+    });
+    await vi.waitFor(() => {
+      expect(view.textContent).toContain("Diferenças estruturais detectadas");
+      expect(view.textContent).toContain("Filtros");
+      expect(view.textContent).toContain("Isolamento por tenant ainda não comprovado.");
+      expect(view.textContent).toContain("SQL não registrada nesta etapa.");
+    });
+    expect(view.textContent).not.toContain("SELECT sensitive");
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(urls.filter((u) => u.includes("/shadow-comparison?")).length).toBe(1);
+    expect(urls.some((u) => u.includes("/api/generate-sql"))).toBe(false);
+  });
+
   it("renders multiple runs and loads the selected visualization", async () => {
     const view = render(<ShadowRunPanel agentRunId={agentRunId} />);
 
