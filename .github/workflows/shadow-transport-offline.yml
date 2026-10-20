@@ -1,0 +1,35 @@
+name: Shadow transport offline
+
+on:
+  pull_request:
+    paths:
+      - "lib/langgraph-shadow-client.ts"
+      - "tests/langgraph-shadow-*.test.ts"
+      - ".github/workflows/shadow-transport-offline.yml"
+  push:
+    branches: [main]
+    paths:
+      - "lib/langgraph-shadow-client.ts"
+      - "tests/langgraph-shadow-*.test.ts"
+      - ".github/workflows/shadow-transport-offline.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  shadow-tests:
+    name: Shadow transport and route contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install local test dependencies
+        run: npm ci --no-audit --no-fund
+      - name: TypeScript contract
+        run: npm run lint
+      - name: Shadow tests (no real services)
+        run: npm test -- tests/langgraph-shadow-client.test.ts tests/langgraph-shadow-route-behavior.test.ts tests/langgraph-shadow-local-e2e.test.ts

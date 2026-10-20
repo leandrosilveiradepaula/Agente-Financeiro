@@ -385,7 +385,8 @@ describe("optional n8n-orchestrated Shadow transport", () => {
       ok: true, status: 202,
       text: async () => JSON.stringify({
         contract_version: "1", accepted: true,
-        agent_run_id: baseInput.agentRunId
+        agent_run_id: baseInput.agentRunId,
+        event: "generate"
       })
     });
     const result = await dispatchLangGraphGenerateShadow(baseInput,{
@@ -410,7 +411,8 @@ describe("optional n8n-orchestrated Shadow transport", () => {
     const fetchImpl=vi.fn().mockResolvedValue({
       ok:true,status:202,
       text:async()=>JSON.stringify({
-        contract_version:"1",accepted:true,agent_run_id:baseInput.agentRunId
+        contract_version:"1",accepted:true,
+        agent_run_id:baseInput.agentRunId,event:"execute_approved"
       })
     });
     const approvedSql="  SELECT 1 AS measure  ";
@@ -422,6 +424,20 @@ describe("optional n8n-orchestrated Shadow transport", () => {
     expect(readRequestBody(fetchImpl).approved_sql).toBe(approvedSql);
     expect((readRequestBody(fetchImpl).correlation_metadata as any).event)
       .toBe("execute_approved");
+  });
+
+  it("rejects a 202 acknowledgement with the wrong event", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true, status: 202,
+      text: async () => JSON.stringify({
+        contract_version: "1", accepted: true,
+        agent_run_id: baseInput.agentRunId, event: "execute_approved"
+      })
+    });
+    const result = await dispatchLangGraphGenerateShadow(baseInput, {
+      env: n8nEnv, fetchImpl
+    });
+    expect(result.status).toBe("invalid_response");
   });
 
   it("fails closed on missing secret, http transport, bogus 200 or mismatched acknowledgement", async () => {
@@ -440,7 +456,8 @@ describe("optional n8n-orchestrated Shadow transport", () => {
     fetchImpl.mockResolvedValueOnce({
       ok:true,status:200,
       text:async()=>JSON.stringify({
-        contract_version:"1",accepted:true,agent_run_id:baseInput.agentRunId
+        contract_version:"1",accepted:true,
+        agent_run_id:baseInput.agentRunId,event:"generate"
       })
     });
     result=await dispatchLangGraphGenerateShadow(baseInput,{env:n8nEnv,fetchImpl});
@@ -448,7 +465,7 @@ describe("optional n8n-orchestrated Shadow transport", () => {
     fetchImpl.mockResolvedValueOnce({
       ok:true,status:202,
       text:async()=>JSON.stringify({
-        contract_version:"1",accepted:true,agent_run_id:"other"
+        contract_version:"1",accepted:true,agent_run_id:"other",event:"generate"
       })
     });
     result=await dispatchLangGraphGenerateShadow(baseInput,{env:n8nEnv,fetchImpl});

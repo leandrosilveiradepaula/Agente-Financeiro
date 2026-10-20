@@ -188,12 +188,21 @@ async function dispatchLangGraphShadow(
       }
     }
     if (n8nTransport) {
-      const ack = parsed as {accepted?: unknown; contract_version?: unknown; agent_run_id?: unknown} | null;
-      const submitted = payload as {agent_run_id?: unknown};
+      const ack = parsed as {
+        accepted?: unknown;
+        contract_version?: unknown;
+        agent_run_id?: unknown;
+        event?: unknown;
+      } | null;
+      const submitted = payload as {
+        agent_run_id?: unknown;
+        correlation_metadata?: { event?: unknown };
+      };
       if (response.status !== 202 ||
           !ack || ack.accepted !== true ||
           ack.contract_version !== "1" ||
-          ack.agent_run_id !== submitted.agent_run_id) {
+          ack.agent_run_id !== submitted.agent_run_id ||
+          ack.event !== submitted.correlation_metadata?.event) {
         return sanitizedFailure("invalid_response");
       }
     }
