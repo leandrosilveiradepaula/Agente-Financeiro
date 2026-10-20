@@ -79,7 +79,7 @@ describe("Admin SQL comparison read boundary", () => {
       join(process.cwd(), "components/ShadowRunPanel.tsx"),
       "utf8"
     );
-    expect(listRoute).toContain("shadow_enabled: isLangGraphShadowEnabled()");
+    expect(listRoute).toContain("shadow_enabled: isLangGraphShadowDispatchConfigured()");
     expect(panel).toContain("data.shadow_enabled === true && attempt < 12");
     expect(panel).toContain("loadShadowRuns(attempt + 1)");
     expect(panel).toContain("if (retryTimer) clearTimeout(retryTimer)");

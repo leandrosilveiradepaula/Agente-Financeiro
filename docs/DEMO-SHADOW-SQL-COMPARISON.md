@@ -58,3 +58,12 @@ A ativação da comparação, mudanças em n8n e credenciais, chamada paga
 Gemini, execução SQL read-only, produção e cutover exigem autorização
 separada. O rollback da leitura desliga sua flag, preservando a
 resposta oficial n8n + Gemini.
+
+## Evitar polling sem configuração de dispatch
+
+A flag Shadow sozinha não significa que o relay esteja pronto. A API de
+listagem só anuncia shadow_enabled=true quando o cliente Shadow possui
+**dispatch configurado**, incluindo as referências de endereço/token
+do transporte e sua flag. Sem configuração, o painel não repete
+consultas de evidência por até 96 segundos, nem chama o modelo.
+Isso **não atesta** que a conexão de rede efetivamente funcione.
