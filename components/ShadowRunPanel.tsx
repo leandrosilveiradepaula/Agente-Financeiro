@@ -459,10 +459,10 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
                     comparisonState.shadowId === selectedShadowId}
                   className="rounded-md bg-slate-800 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 >
-                  Comparar SQL gerada e executada (sem executar novamente)
+                  Comparar SQLs registradas (sem executar)
                 </button>
                 <p className="text-xs text-steel">
-                  Compara as duas versões registradas pelo fluxo oficial com a mesma geração LangGraph. Não executa SQL e não comprova equivalência financeira.
+                  Compara a SQL devolvida pelo n8n e, quando houver, a SQL registrada em uma execução posterior do Produto. Ambas são comparadas à mesma geração LangGraph, sem executar SQL.
                 </p>
                 {comparisonState.shadowId === selectedShadowId &&
                  comparisonState.status === "loading" ? (
@@ -476,22 +476,23 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
                  comparisonState.status === "ready" ? (
                   <div className="space-y-3 text-sm">
                     <SqlComparisonStage
-                      label="SQL gerada pelo fluxo oficial"
+                      label="SQL devolvida pelo n8n (após o cleaner)"
                       stage={comparisonState.data.generated}
                     />
                     <SqlComparisonStage
-                      label="SQL registrada como executada pelo fluxo oficial"
+                      label="SQL registrada em execução posterior do Produto"
                       stage={comparisonState.data.executed}
                     />
                     {comparisonState.data.official_sql_text_changed === true ? (
                       <p className="font-medium text-amber-800">
-                        A SQL oficial foi alterada entre geração e execução.
-                        Verifique o cleaner e os filtros; a diferença pode ser apenas formatação.
+                        As SQLs armazenadas pelo Produto são textualmente diferentes.
+                        Isso não demonstra o que o cleaner modificou dentro do n8n.
                       </p>
                     ) : null}
                     <p className="font-medium text-steel">
-                      Comparação estrutural somente. Paridade financeira e equivalência
-                      numérica não comprovadas; nenhuma consulta executada por este comparador.
+                      A SQL original do Gemini, antes do cleaner, não está registrada nestas etapas.
+                      Comparação estrutural somente: paridade financeira e equivalência
+                      numérica não comprovadas, sem executar consultas neste comparador.
                     </p>
                   </div>
                 ) : null}

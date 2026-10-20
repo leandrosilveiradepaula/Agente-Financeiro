@@ -35,19 +35,32 @@ iniciar runner por bloqueio de faturamento da conta; compilação da
 Preview não substitui Vitest. Nenhum teste pago de LLM é necessário.
 
 
-## SQL gerada versus SQL registrada como executada
+## Proveniência e limite das duas SQLs persistidas
 
-O Produto preserva dois campos distintos: `sql_generated` e
-`sql_executed`. O endpoint autorizado agora compara **ambos**, quando
-existentes, com a mesma geração Shadow persistida (apenas leitura). Não
-assumir que a SQL gerada chegou intacta ao executor: o workflow n8n oficial
-pode modificar filtros no cleaner. O campo `official_sql_text_changed`
-indica exclusivamente uma diferença textual entre esses campos, inclusive
-se for apenas espaços ou comentários, e não determina erro financeiro.
+A exportação **ativa e confirmada pelo operador** com 68 nós contém o
+percurso `Gemini - Gerar SQL` → `Code - Limpar SQL DuckLake` →
+validação/preflight → `Postgres - Executar SQL Demo` →
+`Code - Normalizar Resultado Postgres Demo` → relatório/resposta.
+Há caminhos de cache e reparo, mas a resposta de geração ao Produto
+**já contém SQL após o cleaner e após execução interna ao n8n**.
 
-Quando não existe SQL executada, a interface mostra "SQL não registrada
-nesta etapa"; quando uma etapa não pode ser comparada com segurança,
-a tela deixa explícita a limitação. Nenhum valor SQL é exposto ao browser.
+- `ai_agent_runs.sql_generated` guarda a SQL **devolvida pelo n8n**
+  ao Produto; seu nome não comprova que seja a SQL original do Gemini.
+- `ai_agent_runs.sql_executed` registra, quando disponível, a SQL da
+  **etapa de execução posterior do Produto**; não identifica necessariamente
+  a consulta que o n8n executou dentro de seu webhook inicial.
+- A comparação pode examinar os dois campos contra a mesma evidência
+  LangGraph. `official_sql_text_changed` indica apenas divergência
+  textual entre os campos (inclusive formatação), **não** uma
+  transformação causada pelo cleaner.
+- O draft original do Gemini, anterior ao cleaner, e cada transformação
+  interna não estão presentes no payload final analisado. Atribuição de
+  divergência ao cleaner exige inspeção autorizada de evidências internas
+  do n8n ou instrumentação separadamente aprovada.
+
+A interface informa quando não existe SQL posterior. Nenhum valor de
+SQL bruta é exposto ao navegador. Não declarar paridade financeira ou
+comparação com o Gemini pré-cleaner sem evidências específicas.
 
 ## Disponibilidade do controle de comparação
 

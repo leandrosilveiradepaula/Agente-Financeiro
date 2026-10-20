@@ -24,7 +24,9 @@ describe("Admin SQL comparison read boundary", () => {
     expect(route).toContain("originalUserId: run.user_id");
     expect(route).toContain("agentRunId: id");
     expect(route).not.toContain("request.json()");
-    expect(route).not.toContain("run.sql_executed");
+    // Product's later execution SQL is intentionally compared.
+    expect(route).toContain("compareStage(run.sql_executed)");
+    expect(route).not.toContain("officialSql: request");
   });
 
   it("compares generated and executed SQL independently, without executing either", () => {
@@ -51,11 +53,24 @@ describe("Admin SQL comparison read boundary", () => {
     expect(panel).toContain("A comparação de SQL está desativada neste ambiente.");
   });
 
+  it("labels persisted SQL without claiming access to the pre-cleaner Gemini draft", () => {
+    const panel = readFileSync(
+      join(process.cwd(), "components/ShadowRunPanel.tsx"),
+      "utf8"
+    );
+    expect(panel).toContain("SQL devolvida pelo n8n (após o cleaner)");
+    expect(panel).toContain("SQL registrada em execução posterior do Produto");
+    expect(panel).toContain("A SQL original do Gemini, antes do cleaner");
+    expect(panel).not.toContain("Verifique o cleaner e os filtros");
+  });
+
   it("does not execute SQL, update records, or return raw SQL", () => {
     expect(route).not.toContain("executeSql");
     expect(route).not.toContain("updateAgentRun");
     expect(route).not.toContain("N8N_EXECUTE");
-    expect(route).toContain("comparison: result.data");
+    expect(route).toContain("comparison: {");
+    expect(route).toContain("generated,");
+    expect(route).toContain("executed,");
     expect(route).not.toContain("official_sql: ");
     expect(route).toContain('export const runtime = "nodejs"');
   });

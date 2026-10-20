@@ -57,7 +57,9 @@ export async function GET(request: Request, context: RouteContext) {
 
   // Two independent, read-only comparisons against the SAME persisted
   // LangGraph generation, never two requests to generate or execute SQL.
-  // The old n8n workflow can rewrite SQL between these two stored stages.
+  // The official n8n flow already cleans and executes SQL internally before
+  // returning the SQL stored in sql_generated. These two Product columns do
+  // NOT capture pre-cleaner Gemini SQL.
   async function compareStage(officialSql: string | null) {
     if (!officialSql?.trim()) return { status: "not_recorded" as const };
     const result = await compareLangGraphShadowSql({
