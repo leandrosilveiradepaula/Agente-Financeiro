@@ -1,0 +1,37 @@
+name: Demo Shadow transport offline
+
+on:
+  pull_request:
+    branches: [demo/grupo-horizonte]
+    paths:
+      - "lib/langgraph-shadow-client.ts"
+      - "tests/langgraph-shadow-client.test.ts"
+      - "docs/shadow-parallel-n8n-g1.md"
+      - ".github/workflows/demo-shadow-transport-offline.yml"
+  push:
+    branches: [demo/grupo-horizonte]
+    paths:
+      - "lib/langgraph-shadow-client.ts"
+      - "tests/langgraph-shadow-client.test.ts"
+      - ".github/workflows/demo-shadow-transport-offline.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  shadow-transport:
+    name: Demo Shadow transport contract and TypeScript
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install dependencies without optional external calls
+        run: npm ci --no-audit --no-fund
+      - name: TypeScript
+        run: npm run lint
+      - name: Isolated n8n / relay / direct Shadow contract tests
+        run: npm test -- tests/langgraph-shadow-client.test.ts
