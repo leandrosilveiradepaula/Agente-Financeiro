@@ -160,10 +160,9 @@ async function dispatchLangGraphShadow(
   try {
     const response = await fetchImpl(target.url, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${target.token}`,
-        "Content-Type": "application/json"
-      },
+      headers: target.mode === "n8n"
+        ? { "X-Agent-Shadow-Token": target.token, "Content-Type": "application/json" }
+        : { Authorization: `Bearer ${target.token}`, "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       cache: "no-store",
       redirect: "error",
@@ -187,7 +186,20 @@ async function dispatchLangGraphShadow(
       return sanitizedFailure("invalid_response");
     }
 
-    if (target.relay && (
+    if (target.mode === "n8n") {
+      const submitted = payload as {
+        agent_run_id?: unknown;
+        correlation_metadata?: { event?: unknown };
+      };
+      if (response.status !== 202 ||
+          !isRecord(parsed) ||
+          parsed.accepted !== true ||
+          parsed.contract_version !== "1" ||
+          parsed.agent_run_id !== submitted.agent_run_id ||
+          parsed.event !== submitted.correlation_metadata?.event) {
+        return sanitizedFailure("invalid_response");
+      }
+    } else if (target.mode === "n8n_relay" && (
       !isRecord(parsed) ||
       parsed.relay_status !== "accepted" ||
       parsed.agent_run_id !== (payload as { agent_run_id?: string }).agent_run_id
@@ -233,7 +245,11 @@ function buildCorrelationMetadata({
   };
 }
 
-type DispatchTarget = { url: string; token: string; relay: boolean };
+type DispatchTarget = {
+  url: string;
+  token: string;
+  mode: "direct" | "n8n_relay" | "n8n";
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -241,6 +257,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function dispatchTarget(env: ShadowEnv, path: string): DispatchTarget | null {
   const transport = env.LANGGRAPH_SHADOW_TRANSPORT?.trim() || "direct";
+  // Separate n8n orchestration: Header Auth and 202 correlation contract,
+  // never the LangGraph Bearer credential. This does not enable the workflow.
+  if (transport === "n8n") {
+    const raw = env.LANGGRAPH_SHADOW_N8N_WEBHOOK_URL?.trim();
+    const token = env.N8N_SHADOW_WEBHOOK_TOKEN?.trim();
+    if (!raw || !token) return null;
+    const url = safeEndpointUrl(raw, true);
+    if (!url || new URL(url).pathname !== "/webhook/langgraph-shadow-parallel-v1") {
+      return null;
+    }
+    return { url, token, mode: "n8n" };
+  }
   if (transport === "n8n_relay") {
     const key = path === "/v1/internal/sql-agent/generate"
       ? "LANGGRAPH_SHADOW_RELAY_GENERATE_URL"
@@ -251,7 +279,7 @@ function dispatchTarget(env: ShadowEnv, path: string): DispatchTarget | null {
     const token = env.LANGGRAPH_SHADOW_RELAY_TOKEN?.trim();
     if (!raw || !token) return null;
     const url = safeEndpointUrl(raw, true);
-    return url ? { url, token, relay: true } : null;
+    return url ? { url, token, mode: "n8n_relay" } : null;
   }
   if (transport !== "direct") return null;
   const token = env.LANGGRAPH_S2S_TOKEN?.trim();
@@ -263,7 +291,7 @@ function dispatchTarget(env: ShadowEnv, path: string): DispatchTarget | null {
   if (url.pathname !== "/" && url.pathname !== "") return null;
   if (env.VERCEL === "1" && (url.protocol !== "https:" ||
       isLocalOrPrivateHostname(url.hostname))) return null;
-  return { url: base.replace(/\/+$/, "") + path, token, relay: false };
+  return { url: base.replace(/\/+$/, "") + path, token, mode: "direct" };
 }
 
 function safeEndpointUrl(raw: string, relay: boolean): string | null {
