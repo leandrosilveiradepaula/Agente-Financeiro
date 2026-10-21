@@ -108,6 +108,154 @@ describe("LangGraph shadow client", () => {
     expect(isLangGraphShadowDispatchConfigured({ ...enabledEnv, VERCEL: "1", LANGGRAPH_INTERNAL_BASE_URL: "http://shadow.example.test" })).toBe(false);
     expect(isLangGraphShadowDispatchConfigured({ ...enabledEnv, LANGGRAPH_INTERNAL_BASE_URL: "https://user:pass@shadow.example.test" })).toBe(false);
   });
+  it("uses the separate parallel n8n Header Auth webhook with a correlated 202 acknowledgement", async () => {
+    const env = {
+      ...enabledEnv,
+      VERCEL: "1",
+      LANGGRAPH_SHADOW_TRANSPORT: "n8n",
+      LANGGRAPH_SHADOW_N8N_WEBHOOK_URL:
+        "https://n8n.example.test/webhook/langgraph-shadow-parallel-v1",
+      N8N_SHADOW_WEBHOOK_TOKEN: "synthetic-n8n-webhook-token",
+      LANGGRAPH_S2S_TOKEN: ""
+    };
+    expect(isLangGraphShadowDispatchConfigured(env)).toBe(true);
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 202,
+      text: async () => JSON.stringify({
+        contract_version: "1",
+        accepted: true,
+        agent_run_id: baseInput.agentRunId,
+        event: "generate"
+      })
+    } as Response);
+    const selection = {
+      provider_key: "provider-fixture",
+      model_key: "model-fixture",
+      config_version: "version-fixture"
+    };
+    const result = await dispatchLangGraphGenerateShadow(
+      { ...baseInput, llmSelection: selection },
+      { env, fetchImpl }
+    );
+    expect(result).toEqual({ status: "sent", httpStatus: 202 });
+    expect(fetchImpl.mock.calls[0][0]).toBe(
+      "https://n8n.example.test/webhook/langgraph-shadow-parallel-v1"
+    );
+    const init = fetchImpl.mock.calls[0][1] as RequestInit;
+    expect(init.headers).toEqual({
+      "X-Agent-Shadow-Token": "synthetic-n8n-webhook-token",
+      "Content-Type": "application/json"
+    });
+    expect(init.redirect).toBe("error");
+    const sent = readRequestBody(fetchImpl);
+    expect(sent.llm_selection).toEqual(selection);
+    expect(sent.agent_run_id).toBe(baseInput.agentRunId);
+    expect((sent.correlation_metadata as Record<string, unknown>).event).toBe("generate");
+    expect(JSON.stringify(sent)).not.toContain("synthetic-n8n-webhook-token");
+  });
+
+  it("uses the same parallel n8n webhook for approved-SQL evidence only", async () => {
+    const env = {
+      ...enabledEnv,
+      LANGGRAPH_SHADOW_TRANSPORT: "n8n",
+      LANGGRAPH_SHADOW_N8N_WEBHOOK_URL:
+        "https://n8n.example.test/webhook/langgraph-shadow-parallel-v1",
+      N8N_SHADOW_WEBHOOK_TOKEN: "synthetic-n8n-webhook-token"
+    };
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 202,
+      text: async () => JSON.stringify({
+        contract_version: "1",
+        accepted: true,
+        agent_run_id: baseInput.agentRunId,
+        event: "execute_approved"
+      })
+    } as Response);
+    const approvedSql = "SELECT opaque_value FROM authorized_relation";
+    const result = await dispatchLangGraphExecuteApprovedShadow({
+      agentRunId: baseInput.agentRunId,
+      approvedSql,
+      principal: baseInput.principal,
+      requestId: baseInput.requestId
+    }, { env, fetchImpl });
+    expect(result.status).toBe("sent");
+    const body = readRequestBody(fetchImpl);
+    expect(body.approved_sql).toBe(approvedSql);
+    expect((body.correlation_metadata as Record<string, unknown>).event).toBe("execute_approved");
+    expect(body).not.toHaveProperty("llm_selection");
+  });
+
+  it("rejects false or incomplete parallel n8n acknowledgements", async () => {
+    const env = {
+      ...enabledEnv,
+      LANGGRAPH_SHADOW_TRANSPORT: "n8n",
+      LANGGRAPH_SHADOW_N8N_WEBHOOK_URL:
+        "https://n8n.example.test/webhook/langgraph-shadow-parallel-v1",
+      N8N_SHADOW_WEBHOOK_TOKEN: "synthetic-n8n-webhook-token"
+    };
+    const valid = {
+      contract_version: "1", accepted: true,
+      agent_run_id: baseInput.agentRunId, event: "generate"
+    };
+    for (const [status, body] of [
+      [200, valid],
+      [202, { ...valid, agent_run_id: "other-run" }],
+      [202, { ...valid, event: "execute_approved" }],
+      [202, { ...valid, contract_version: "2" }],
+      [202, { ...valid, accepted: "true" }],
+      [202, { ...valid, accepted: false }],
+      [202, { relay_status: "accepted", agent_run_id: baseInput.agentRunId }],
+      [202, null]
+    ] as const) {
+      const fetchImpl = vi.fn().mockResolvedValue({
+        ok: true,
+        status,
+        text: async () => JSON.stringify(body)
+      } as Response);
+      expect((await dispatchLangGraphGenerateShadow(baseInput, { env, fetchImpl })).status)
+        .toBe("invalid_response");
+    }
+  });
+
+  it("fails closed for missing or unsafe parallel n8n endpoint configuration", async () => {
+    const base = {
+      ...enabledEnv,
+      LANGGRAPH_SHADOW_TRANSPORT: "n8n",
+      N8N_SHADOW_WEBHOOK_TOKEN: "synthetic-n8n-webhook-token"
+    };
+    const invalid = [
+      "",
+      "http://n8n.example.test/webhook/langgraph-shadow-parallel-v1",
+      "https://127.0.0.1/webhook/langgraph-shadow-parallel-v1",
+      "https://user:secret@n8n.example.test/webhook/langgraph-shadow-parallel-v1",
+      "https://n8n.example.test/webhook/langgraph-shadow-parallel-v1?token=bad",
+      "https://n8n.example.test/webhook/other",
+      "https://n8n.example.test/webhook/langgraph-shadow-parallel-v1/extra"
+    ];
+    for (const url of invalid) {
+      const env = { ...base, LANGGRAPH_SHADOW_N8N_WEBHOOK_URL: url };
+      const fetchImpl = vi.fn();
+      expect(isLangGraphShadowDispatchConfigured(env)).toBe(false);
+      expect((await dispatchLangGraphGenerateShadow(baseInput, { env, fetchImpl })).status)
+        .toBe("configuration_error");
+      expect(fetchImpl).not.toHaveBeenCalled();
+    }
+    expect(isLangGraphShadowDispatchConfigured({
+      ...base,
+      LANGGRAPH_SHADOW_N8N_WEBHOOK_URL:
+        "https://n8n.example.test/webhook/langgraph-shadow-parallel-v1",
+      N8N_SHADOW_WEBHOOK_TOKEN: ""
+    })).toBe(false);
+    expect(isLangGraphShadowDispatchConfigured({
+      ...base,
+      LANGGRAPH_SHADOW_N8N_WEBHOOK_URL:
+        "https://n8n.example.test/webhook/langgraph-shadow-parallel-v1",
+      LANGGRAPH_OFFICIAL_VIA_N8N: "true"
+    })).toBe(false);
+  });
+
   it("uses a separate authenticated HTTPS relay for generate", async () => {
     const env = { ...enabledEnv, VERCEL: "1",
       LANGGRAPH_SHADOW_TRANSPORT: "n8n_relay",
