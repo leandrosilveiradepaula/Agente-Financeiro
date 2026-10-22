@@ -18,6 +18,14 @@ type OrchestrationDiagnostics = {
     fingerprint?: string | null;
   };
   langgraph_shadow_enabled?: boolean;
+  langgraph_shadow?: {
+    transport?: string;
+    generate_target_configured?: boolean;
+    execute_target_configured?: boolean;
+    dispatch_ready?: boolean;
+    evidence_read_configured?: boolean;
+    blockers?: string[];
+  };
 };
 
 type AgentDiagnosticsPanelProps = {
@@ -236,7 +244,11 @@ export function AgentDiagnosticsPanel({
     `n8n geração configurado: ${String(orchestration?.n8n_generate_sql?.configured ?? "não informado")}`,
     `n8n webhook path: ${orchestration?.n8n_generate_sql?.path_suffix || "não informado"}`,
     `n8n endpoint fingerprint: ${orchestration?.n8n_generate_sql?.fingerprint || "não informado"}`,
-    `LangGraph Shadow habilitado: ${String(orchestration?.langgraph_shadow_enabled ?? "não informado")}`
+    `LangGraph Shadow habilitado: ${String(orchestration?.langgraph_shadow_enabled ?? "não informado")}`,
+    `Shadow transporte: ${orchestration?.langgraph_shadow?.transport || "não informado"}`,
+    `Shadow configuração pronta (não garante conectividade): ${String(orchestration?.langgraph_shadow?.dispatch_ready ?? "não confirmado")}`,
+    `Leitura de evidência configurada (não garante conectividade): ${String(orchestration?.langgraph_shadow?.evidence_read_configured ?? "não confirmado")}`,
+    `Shadow bloqueios: ${orchestration?.langgraph_shadow?.blockers?.join(", ") || "nenhum informado"}`
   ].join("\n");
 
   async function copyDiagnostics() {
@@ -272,6 +284,16 @@ export function AgentDiagnosticsPanel({
 
           <div className="rounded-md border border-slate-200 bg-white px-3 py-3 text-sm font-medium text-steel">
             Nenhuma execucao carregada para diagnostico.
+          </div>
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-semibold uppercase text-slate-500">Pré-ativação Shadow (somente configuração)</p>
+            <div className="mt-2 grid gap-1 text-xs text-steel">
+              <span>Transporte: {orchestration?.langgraph_shadow?.transport || "não confirmado"}</span>
+              <span>Dispatch: {orchestration?.langgraph_shadow?.dispatch_ready ? "configurado, conectividade não testada" : "não habilitado ou incompleto"}</span>
+              <span>Evidência: {orchestration?.langgraph_shadow?.evidence_read_configured ? "configurada, conectividade não testada" : "leitura não configurada"}</span>
+              <span>Pendências: {orchestration?.langgraph_shadow?.blockers?.join(", ") || "não confirmadas"}</span>
+            </div>
+            {orchestrationError ? <p className="mt-2 text-xs text-amber-700">{orchestrationError}</p> : null}
           </div>
 
           <div>
@@ -332,6 +354,10 @@ export function AgentDiagnosticsPanel({
             <span>
               LangGraph Shadow: {orchestration?.langgraph_shadow_enabled ? "habilitado" : "desabilitado"}
             </span>
+            <span>Transporte: {orchestration?.langgraph_shadow?.transport || "não confirmado"}</span>
+            <span>Dispatch: {orchestration?.langgraph_shadow?.dispatch_ready ? "configurado; conectividade não verificada" : "não habilitado ou incompleto"}</span>
+            <span>Leitura de evidência: {orchestration?.langgraph_shadow?.evidence_read_configured ? "configurada; conectividade não verificada" : "não configurada"}</span>
+            <span>Pendências Shadow: {orchestration?.langgraph_shadow?.blockers?.join(", ") || "não confirmadas"}</span>
           </div>
           {orchestrationError ? (
             <p className="mt-2 text-xs font-medium text-amber-700">{orchestrationError}</p>

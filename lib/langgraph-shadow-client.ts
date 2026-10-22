@@ -71,10 +71,50 @@ export function isLangGraphShadowEnabled(env: ShadowEnv = process.env): boolean 
 }
 
 // Configuration readiness is not proof of network reachability.
+export type ShadowDispatchBlocker =
+  | "feature_disabled"
+  | "already_official"
+  | "unsupported_transport"
+  | "generate_target_unconfigured"
+  | "execute_target_unconfigured";
+
+// Local configuration only: this is NOT a probe of n8n, LLM execution or
+// correlated evidence. Restrict to status booleans and structural reason codes.
+export function inspectLangGraphShadowDispatchConfiguration(
+  env: ShadowEnv = process.env
+) {
+  const transportValue = env.LANGGRAPH_SHADOW_TRANSPORT?.trim() || "direct";
+  const supported = ["direct", "n8n", "n8n_relay"].includes(transportValue);
+  const enabled = isLangGraphShadowEnabled(env);
+  const isAlreadyOfficial = env.LANGGRAPH_OFFICIAL_VIA_N8N?.trim().toLowerCase() === "true";
+  const generateTargetConfigured =
+    dispatchTarget(env, "/v1/internal/sql-agent/generate") !== null;
+  const executeTargetConfigured =
+    dispatchTarget(env, "/v1/internal/sql-agent/execute-approved-shadow") !== null;
+  const blockers: ShadowDispatchBlocker[] = [];
+  if (!enabled) blockers.push("feature_disabled");
+  if (isAlreadyOfficial) blockers.push("already_official");
+  if (!supported) blockers.push("unsupported_transport");
+  if (!generateTargetConfigured) blockers.push("generate_target_unconfigured");
+  if (!executeTargetConfigured) blockers.push("execute_target_unconfigured");
+  return {
+    enabled,
+    transport: supported ? transportValue : "unsupported",
+    generate_target_configured: generateTargetConfigured,
+    execute_target_configured: executeTargetConfigured,
+    dispatch_ready: blockers.length === 0,
+    blockers
+  };
+}
+
 export function isLangGraphShadowDispatchConfigured(env: ShadowEnv = process.env): boolean {
-  if (!isLangGraphShadowEnabled(env)) return false;
-  if (env.LANGGRAPH_OFFICIAL_VIA_N8N?.trim().toLowerCase() === "true") return false;
-  return dispatchTarget(env, "/v1/internal/sql-agent/generate") !== null;
+  // Preserve existing generate-only relay semantics. The administrator's
+  // dispatch_ready flag is stricter: both generation AND approved-execution
+  // endpoints must be configured before declaring G2 fully prepared.
+  const readiness = inspectLangGraphShadowDispatchConfiguration(env);
+  return readiness.enabled &&
+    !readiness.blockers.includes("already_official") &&
+    readiness.generate_target_configured;
 }
 
 export function buildLangGraphShadowPrincipal(
@@ -307,7 +347,7 @@ function safeEndpointUrl(raw: string, relay: boolean): string | null {
   }
 }
 
-function isLocalOrPrivateHostname(host: string): boolean {
+export function isLocalOrPrivateHostname(host: string): boolean {
   const h = host.toLowerCase().replace(/\.$/, "");
   if (["localhost", "::1", "[::1]"].includes(h) ||
       h.endsWith(".localhost") || h.endsWith(".local") ||
