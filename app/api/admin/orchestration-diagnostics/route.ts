@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getProfilePolicy } from "@/lib/profile-policy";
+import { inspectLangGraphShadowDispatchConfiguration } from "@/lib/langgraph-shadow-client";
+import { isLangGraphShadowEvidenceReadConfigured } from "@/lib/langgraph-shadow-read-client";
 import { requireAgentSession } from "@/lib/server-auth";
 
 export const runtime = "nodejs";
@@ -63,6 +65,11 @@ export async function GET() {
       process.env.N8N_GENERATE_SQL_WEBHOOK_URL
     ),
     langgraph_shadow_enabled:
-      process.env.LANGGRAPH_SHADOW_ENABLED?.trim().toLowerCase() === "true"
-  });
+      process.env.LANGGRAPH_SHADOW_ENABLED?.trim().toLowerCase() === "true",
+    langgraph_shadow: {
+      ...inspectLangGraphShadowDispatchConfiguration(),
+      // URL and S2S credentials are never returned to the browser.
+      evidence_read_configured: isLangGraphShadowEvidenceReadConfigured()
+    }
+  }, { headers: { "Cache-Control": "no-store" } });
 }

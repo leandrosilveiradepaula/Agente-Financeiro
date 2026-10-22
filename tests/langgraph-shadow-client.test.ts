@@ -3,7 +3,8 @@ import {
   buildLangGraphShadowPrincipal,
   dispatchLangGraphExecuteApprovedShadow,
   dispatchLangGraphGenerateShadow,
-  isLangGraphShadowDispatchConfigured
+  isLangGraphShadowDispatchConfigured,
+  inspectLangGraphShadowDispatchConfiguration
 } from "@/lib/langgraph-shadow-client";
 import type { AgentSession } from "@/lib/auth/auth-types";
 
@@ -97,6 +98,59 @@ async function expectShadowTimeoutDelay(
 }
 
 describe("LangGraph shadow client", () => {
+  it("reports safe local pre-activation readiness for both generate and execute targets", () => {
+    const env = {
+      ...enabledEnv,
+      LANGGRAPH_SHADOW_TRANSPORT: "n8n",
+      LANGGRAPH_SHADOW_N8N_WEBHOOK_URL:
+        "https://n8n.example.test/webhook/langgraph-shadow-parallel-v1",
+      N8N_SHADOW_WEBHOOK_TOKEN: "synthetic-webhook-secret",
+      LANGGRAPH_SHADOW_ENABLED: "false"
+    };
+    const disabled = inspectLangGraphShadowDispatchConfiguration(env);
+    expect(disabled).toMatchObject({
+      enabled: false,
+      transport: "n8n",
+      generate_target_configured: true,
+      execute_target_configured: true,
+      dispatch_ready: false,
+      blockers: ["feature_disabled"]
+    });
+    const enabled = inspectLangGraphShadowDispatchConfiguration({
+      ...env, LANGGRAPH_SHADOW_ENABLED: "true"
+    });
+    expect(enabled.dispatch_ready).toBe(true);
+    expect(enabled.blockers).toEqual([]);
+    expect(JSON.stringify(enabled)).not.toContain("synthetic-webhook-secret");
+  });
+
+  it("fails readiness closed for a one-sided relay and unsupported transport", () => {
+    const relay = {
+      ...enabledEnv,
+      LANGGRAPH_SHADOW_TRANSPORT: "n8n_relay",
+      LANGGRAPH_SHADOW_RELAY_GENERATE_URL: "https://n8n.example.test/relay/generate",
+      LANGGRAPH_SHADOW_RELAY_TOKEN: "test-relay-secret"
+    };
+    expect(inspectLangGraphShadowDispatchConfiguration(relay)).toMatchObject({
+      generate_target_configured: true,
+      execute_target_configured: false,
+      dispatch_ready: false,
+      blockers: ["execute_target_unconfigured"]
+    });
+    expect(isLangGraphShadowDispatchConfigured(relay)).toBe(false);
+    const unknown = inspectLangGraphShadowDispatchConfiguration({
+      ...enabledEnv, LANGGRAPH_SHADOW_TRANSPORT: "invalid-mode"
+    });
+    expect(unknown).toMatchObject({
+      transport: "unsupported",
+      dispatch_ready: false
+    });
+    expect(unknown.blockers).toContain("unsupported_transport");
+    expect(inspectLangGraphShadowDispatchConfiguration({
+      ...enabledEnv, LANGGRAPH_OFFICIAL_VIA_N8N: "true"
+    }).blockers).toContain("already_official");
+  });
+
   it("reports configured dispatch only when required values are present", () => {
     expect(isLangGraphShadowDispatchConfigured(enabledEnv)).toBe(true);
     expect(isLangGraphShadowDispatchConfigured({ ...enabledEnv, LANGGRAPH_SHADOW_ENABLED: "false" })).toBe(false);

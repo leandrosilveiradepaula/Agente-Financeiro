@@ -92,3 +92,44 @@ publicação do n8n ou ativação do Shadow exige autorização separada.
 - Fase 1: o Produto só permite dispatch quando a seleção versionada (provider_key, model_key, config_version) do Shadow corresponde exatamente à seleção oficial. Não pressupõe nomes de modelos ou regras de cliente. Provedores diferentes ficam cadastrados, porém indisponíveis para comparações antes da Fase 3 autorizada.
 - Na verificação, o GitHub Actions `Demo Shadow transport offline` do SHA acima terminou `failure` em cerca de quatro segundos e não disponibilizou logs de execução pelo conector; a causa **não** foi estabelecida. Investigar runners/limites e rodar CI antes de homologar.
 - Próximos gates: rotação Webhook, variáveis server-only completas, decisão operacional explícita de habilitação isolada, correlação real Produto -> n8n oficial + Shadow Gemini/Gemini e avaliação sem benchmark no gerador. Teste com LLM e comparação financeira exigem autorização própria; SQL real no Shadow permanece desligado.
+
+## Gate G2: inspeção da pré-ativação no Produto (2026-10-22)
+
+A rota administrativa autenticada `GET /api/admin/orchestration-diagnostics`
+inclui `langgraph_shadow` com **somente** estado local de configuração:
+`enabled`, `transport`, `generate_target_configured`,
+`execute_target_configured`, `dispatch_ready`,
+`evidence_read_configured` e códigos de `blockers`.
+Os códigos são estruturais, sem pergunta, SQL, URI interna, hostname,
+token, DSN, header ou valor de variável. A rota usa a RBAC existente,
+`Cache-Control: no-store`, e não faz nenhuma chamada de rede.
+
+**IMPORTANTE:** `dispatch_ready=true` prova somente que os campos de
+configuração passaram nas verificações locais. Não comprova
+autenticação S2S, reachability, modelo, execução ou evidência
+correlacionada. `evidence_read_configured=false` mostra que a leitura
+direta de evidências pelo Produto não está pronta; o fato de o n8n
+ter lido evidências no G1 não fornece automaticamente conectividade à
+Vercel. Não expor LangGraph privado publicamente como atalho; requer
+um transporte de consulta seguro e aprovado separadamente.
+
+Os checks de leitura na Vercel rejeitam URL HTTP, loopback/RFC1918,
+credenciais embutidas, query e path adicional. O comportamento
+local de testes continua autorizado apenas no ambiente de testes.
+Nenhum gate de modelo/SQL foi relaxado.
+
+**Estado observado após merge das PRs #18 e #19:**
+`demo/grupo-horizonte` = `612997a7806ff92648f32ed105c2eb045bd220ff`
+(CI pós-merge PASS; Vercel production READY), `main` =
+`5f6d5113cd69ebcc4475a6f6046046051b8250ac`
+(CI pós-merge PASS). O inventário Vercel ainda não contém
+`LANGGRAPH_SHADOW_TRANSPORT` nem `N8N_SHADOW_WEBHOOK_TOKEN`.
+O token Webhook v2 exposto em captura deve ser rotacionado na credencial
+existente ANTES de qualquer ligação do Produto, e a ativação necessita
+autorização explícita do operador. Não enviar segredos para este diagnóstico.
+
+Requisitos restantes: autenticação Produto -> n8n Shadow com segredo
+rotacionado, canal de leitura de evidências autenticado sem expor
+rede privada, ensaio Gemini/Gemini com autorização de chamadas pagas,
+comprovação real da identidade do modelo usada no n8n oficial,
+e paridade SQL/financeira em etapa segregada.

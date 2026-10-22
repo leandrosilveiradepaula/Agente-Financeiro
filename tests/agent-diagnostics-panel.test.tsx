@@ -107,6 +107,35 @@ afterEach(() => {
 });
 
 describe("AgentDiagnosticsPanel", () => {
+  it("renders pre-activation diagnostics without needing a financial run", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        langgraph_shadow_enabled: false,
+        langgraph_shadow: {
+          transport: "n8n",
+          generate_target_configured: false,
+          execute_target_configured: false,
+          dispatch_ready: false,
+          evidence_read_configured: false,
+          blockers: ["feature_disabled", "generate_target_unconfigured"]
+        }
+      })
+    }));
+    const { view } = renderDiagnostics();
+    await vi.waitFor(() => {
+      expect(view.textContent).toContain("Leitura de evidência: não configurada");
+      expect(view.textContent).toContain("Pendências Shadow: feature_disabled");
+    });
+    clickButton("Copiar diagnóstico");
+    await vi.waitFor(() => {
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        expect.stringContaining("Shadow transporte: n8n")
+      );
+    });
+  });
+
   it("renders current health and copies diagnostics", async () => {
     const { view } = renderDiagnostics();
 

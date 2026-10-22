@@ -1,4 +1,5 @@
 import "server-only";
+import { isLocalOrPrivateHostname } from "@/lib/langgraph-shadow-client";
 import type {
   ShadowRunSummary,
   ShadowStepMetadata,
@@ -394,10 +395,35 @@ function safeStringArrayField(value: Record<string, unknown>, key: string): stri
     : [];
 }
 
-function buildShadowUrl(env: ShadowReadEnv, path: string): string {
-  const baseUrl = env.LANGGRAPH_INTERNAL_BASE_URL?.trim() || DEFAULT_LANGGRAPH_BASE_URL;
-  const url = new URL(baseUrl);
+// Read can remain available when dispatch is off; readiness is deliberately
+// independent of LANGGRAPH_SHADOW_ENABLED and does not make HTTP calls.
+export function isLangGraphShadowEvidenceReadConfigured(
+  env: ShadowReadEnv = process.env
+): boolean {
+  if (!env.LANGGRAPH_INTERNAL_BASE_URL?.trim() ||
+      !env.LANGGRAPH_S2S_TOKEN?.trim()) return false;
+  try {
+    buildShadowUrl(env, "/v1/internal/shadow-runs/test");
+    return true;
+  } catch {
+    return false;
+  }
+}
 
+function buildShadowUrl(env: ShadowReadEnv, path: string): string {
+  const raw = env.LANGGRAPH_INTERNAL_BASE_URL?.trim();
+  // Vercel functions must not silently fall back to their own loopback.
+  if (env.VERCEL === "1" && !raw) throw new Error("External Shadow URL required");
+  const url = new URL(raw || DEFAULT_LANGGRAPH_BASE_URL);
+  if (!["http:", "https:"].includes(url.protocol) ||
+      !url.hostname || url.username || url.password || url.search ||
+      url.hash || (url.pathname !== "/" && url.pathname !== "")) {
+    throw new Error("Invalid Shadow evidence URL");
+  }
+  if (env.VERCEL === "1" &&
+      (url.protocol !== "https:" || isLocalOrPrivateHostname(url.hostname))) {
+    throw new Error("Unsafe Shadow evidence URL for Vercel");
+  }
   return `${url.toString().replace(/\/+$/, "")}${path}`;
 }
 

@@ -5,7 +5,8 @@ vi.mock("server-only", () => ({}));
 import {
   getLangGraphShadowRun,
   getLangGraphShadowRunVisualization,
-  listLangGraphShadowRuns
+  listLangGraphShadowRuns,
+  isLangGraphShadowEvidenceReadConfigured
 } from "@/lib/langgraph-shadow-read-client";
 
 const env = {
@@ -70,6 +71,39 @@ function calledHeaders(fetchImpl: ReturnType<typeof vi.fn>) {
 }
 
 describe("LangGraph shadow read client", () => {
+  it("requires a safe explicit evidence endpoint on Vercel, independently of dispatch", async () => {
+    const configured = {
+      ...env,
+      VERCEL: "1",
+      LANGGRAPH_INTERNAL_BASE_URL: "https://shadow.example.test",
+      LANGGRAPH_SHADOW_ENABLED: "false"
+    };
+    expect(isLangGraphShadowEvidenceReadConfigured(configured)).toBe(true);
+    expect(isLangGraphShadowEvidenceReadConfigured({
+      ...configured, LANGGRAPH_S2S_TOKEN: ""
+    })).toBe(false);
+    for (const url of [
+      "http://shadow.example.test",
+      "https://127.0.0.1:8000",
+      "https://10.0.0.5",
+      "https://user:password@shadow.example.test",
+      "https://shadow.example.test/?key=test",
+      "https://shadow.example.test/non-root"
+    ]) {
+      const bad = { ...configured, LANGGRAPH_INTERNAL_BASE_URL: url };
+      expect(isLangGraphShadowEvidenceReadConfigured(bad)).toBe(false);
+      const fetchImpl = vi.fn();
+      const result = await listLangGraphShadowRuns(
+        "agent-1", undefined, { env: bad, fetchImpl }
+      );
+      expect(result.status).toBe("configuration_error");
+      expect(fetchImpl).not.toHaveBeenCalled();
+    }
+    expect(isLangGraphShadowEvidenceReadConfigured({
+      ...configured, LANGGRAPH_INTERNAL_BASE_URL: ""
+    })).toBe(false);
+  });
+
   it("builds the list URL with encoded agent_run_id and limit", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, { shadow_runs: [shadowRun] }));
 
