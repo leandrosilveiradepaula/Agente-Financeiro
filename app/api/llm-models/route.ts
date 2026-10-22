@@ -8,6 +8,7 @@ import {
 import type { LlmExecutionTarget, LlmModelsResponse } from "@/lib/llm-provider-types";
 import { buildPolicyDeniedResponse, enforceCanGenerateSql } from "@/lib/profile-policy";
 import { isLangGraphShadowDispatchConfigured } from "@/lib/langgraph-shadow-client";
+import { isShadowPhaseOneProviderMatch } from "@/lib/shadow-phase-gate";
 import { requireAgentSession } from "@/lib/server-auth";
 
 export const runtime = "nodejs";
@@ -60,14 +61,34 @@ export async function GET(request: Request) {
     target,
     profile: session.userProfile
   });
+  const officialDefault = target === "shadow"
+    ? getDefaultLlmSelection({
+        environment,
+        target: "official",
+        profile: session.userProfile
+      })
+    : null;
+  // Fase 1: keep other providers catalogued but unavailable for Shadow.
+  // Future provider comparisons require a separately authorized phase.
+  const phaseOneModels = target === "shadow"
+    ? models.map((model) => ({
+        ...model,
+        available_for_target: model.available_for_target &&
+          isShadowPhaseOneProviderMatch(officialDefault, model)
+      }))
+    : models;
+  const phaseOneDefault = target === "shadow" &&
+    !isShadowPhaseOneProviderMatch(officialDefault, defaultSelection)
+    ? null
+    : defaultSelection;
 
   return NextResponse.json(
     {
       success: true,
       registry_version: getLlmRegistryVersion(),
       target,
-      models,
-      default_selection: defaultSelection,
+      models: phaseOneModels,
+      default_selection: phaseOneDefault,
       ...(target === "shadow" ? {
         shadow_dispatch_configured: isLangGraphShadowDispatchConfigured()
       } : {})

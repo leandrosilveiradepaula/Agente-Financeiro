@@ -37,6 +37,7 @@ import {
   isLangGraphShadowEnabled
 } from "@/lib/langgraph-shadow-client";
 import { AGENT_VERSION, type GenerateSqlResponse } from "@/lib/types";
+import { isShadowPhaseOneProviderMatch } from "@/lib/shadow-phase-gate";
 import { normalizeWatsonResult } from "@/lib/watson-result-normalization";
 
 export const runtime = "nodejs";
@@ -444,19 +445,31 @@ export async function POST(request: Request) {
     profile: session.userProfile
   });
 
-  const directShadowEnabled =
+  const parallelShadowEnabled =
     isLangGraphShadowEnabled() && !isLangGraphOfficialViaN8n();
 
   let shadowLlmSelection: ReturnType<typeof resolveLlmSelection> | null = null;
 
-  if (directShadowEnabled) {
+  if (parallelShadowEnabled) {
     try {
-      shadowLlmSelection = resolveLlmSelection({
+      const resolvedShadowLlmSelection = resolveLlmSelection({
         environment: registryEnvironment,
         target: "shadow",
         profile: session.userProfile,
         requested: requestedLlmSelection
       });
+      if (isShadowPhaseOneProviderMatch(
+        officialLlmSelection.selection,
+        resolvedShadowLlmSelection.selection
+      )) {
+        shadowLlmSelection = resolvedShadowLlmSelection;
+      } else {
+        logger.warn("generate_sql.shadow_phase_one_provider_mismatch", {
+          requestId,
+          userId: session.userId,
+          userProfile: session.userProfile
+        });
+      }
     } catch (error) {
       logger.warn("generate_sql.shadow_llm_selection_unavailable", {
         requestId,
@@ -494,7 +507,8 @@ export async function POST(request: Request) {
       },
       llm_selection: {
         official: officialLlmSelection.selection,
-        shadow: shadowLlmSelection?.selection ?? requestedLlmSelection
+        shadow: shadowLlmSelection?.selection ?? null,
+        requested_shadow: requestedLlmSelection
       },
       llm_registry_version: getLlmRegistryVersion()
     }
@@ -916,7 +930,7 @@ export async function POST(request: Request) {
     };
 
     // Never silently fall back to Gemini when an explicit Shadow model cannot be resolved.
-    if (directShadowEnabled && shadowLlmSelection !== null) {
+    if (parallelShadowEnabled && shadowLlmSelection !== null) {
       const principal = buildLangGraphShadowPrincipal(session);
 
       after(async () => {

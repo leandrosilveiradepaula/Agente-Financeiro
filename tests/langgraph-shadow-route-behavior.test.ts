@@ -311,44 +311,67 @@ describe("LangGraph shadow route behavior", () => {
     });
   });
 
-  it("keeps selected LLM out of official n8n and uses it only for shadow", async () => {
+  it("prevents an alternate configured provider from running in Phase 1", async () => {
     resetRouteMocks();
     routeMocks.isLangGraphShadowEnabled.mockReturnValue(true);
     const fetchImpl = mockOfficialGenerateFetch();
     vi.stubGlobal("fetch", fetchImpl);
 
     const { POST } = await import("@/app/api/generate-sql/route");
-    await POST(
-      new Request("http://localhost/api/generate-sql", {
-        method: "POST",
-        body: JSON.stringify({
-          pergunta: "Qual foi o resultado por marca?",
-          llm_selection: {
-            provider_key: "infodive_local",
-            model_key: "sql-infodive",
-            config_version: "sql-infodive-demo-v1"
-          }
-        })
+    const response = await POST(new Request("http://localhost/api/generate-sql", {
+      method: "POST",
+      body: JSON.stringify({
+        pergunta: "Qual foi o resultado por marca?",
+        llm_selection: {
+          provider_key: "infodive_ibm_cloud",
+          model_key: "SQL-InfoDive",
+          config_version: "sql-infodive-ibm-cloud-v1"
+        }
       })
-    );
+    }));
+    const officialBody = JSON.parse(String(fetchImpl.mock.calls[0][1].body));
 
-    const officialInit = fetchImpl.mock.calls[0][1] as RequestInit;
-    const officialBody = JSON.parse(String(officialInit.body));
-
+    expect(response.status).toBe(200);
     expect(officialBody).not.toHaveProperty("llm_selection");
     expect(officialBody).not.toHaveProperty("llm_registry_version");
+    expect(routeMocks.afterCallbacks).toHaveLength(0);
+    expect(routeMocks.dispatchLangGraphGenerateShadow).not.toHaveBeenCalled();
+    expect(routeMocks.loggerWarn).toHaveBeenCalledWith(
+      "generate_sql.shadow_phase_one_provider_mismatch",
+      {
+        requestId: expect.any(String),
+        userId: "user-1",
+        userProfile: "admin"
+      }
+    );
+  });
 
+  it("preserves explicit same-provider selection for Phase 1 Shadow", async () => {
+    resetRouteMocks();
+    routeMocks.isLangGraphShadowEnabled.mockReturnValue(true);
+    vi.stubGlobal("fetch", mockOfficialGenerateFetch());
+    const { POST } = await import("@/app/api/generate-sql/route");
+    const response = await POST(new Request("http://localhost/api/generate-sql", {
+      method: "POST",
+      body: JSON.stringify({
+        pergunta: "Qual foi o resultado por marca?",
+        llm_selection: {
+          provider_key: "google_gemini",
+          model_key: "gemini-2.5-flash",
+          config_version: "gemini-demo-v1"
+        }
+      })
+    }));
+    expect(response.status).toBe(200);
     expect(routeMocks.afterCallbacks).toHaveLength(1);
     await routeMocks.afterCallbacks[0]();
-
     expect(routeMocks.dispatchLangGraphGenerateShadow).toHaveBeenCalledWith(
       expect.objectContaining({
         llmSelection: {
-          provider_key: "infodive_local",
-          model_key: "sql-infodive",
-          config_version: "sql-infodive-demo-v1"
-        },
-        timeoutMs: 180000
+          provider_key: "google_gemini",
+          model_key: "gemini-2.5-flash",
+          config_version: "gemini-demo-v1"
+        }
       })
     );
   });

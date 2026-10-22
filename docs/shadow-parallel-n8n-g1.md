@@ -1,8 +1,12 @@
 # Gate G1 — Demo Finance: n8n Parallel Shadow (contrato v1)
 
-**Estado deste documento:** integração preparada em código; não atesta
-workflow importado, publicado ou executado no n8n. Não altera o caminho
-oficial. A implantação exige autorização e verificação do ambiente ativo.
+**Estado em 2026-10-22:** integração sintética dos **sete nós** confirmada
+pelo operador no workflow n8n `LwUsMRWi34D2ARWu1YzgV`. Webhook,
+autenticação S2S, rejeição intencional pré-LLM, persistência, leitura
+e `Assert Shadow Evidence` passaram com `correlated: true` e
+`agent_run_id=g1-final-ec6ce53d6a8543d5925e58609383ef9b`.
+Isto **não** atesta geração real Produto -> n8n ou paridade financeira.
+O fluxo n8n + Gemini oficial permanece inalterado.
 
 ## Fluxos, sem troca implícita
 
@@ -79,3 +83,12 @@ Desabilitar apenas `LANGGRAPH_SHADOW_ENABLED` na configuração do Produto
 interrompe novos disparos; não modifica n8n oficial nem cancela automaticamente
 execuções Shadow já aceitas. Qualquer mudança de produção, credencial,
 publicação do n8n ou ativação do Shadow exige autorização separada.
+
+## Preparação da integração Produto -> n8n (levantamento 2026-10-22)
+
+- A Demo Vercel foi observada READY no SHA `687447c8314d6706d9853fc595a262316afeb3ca` da branch `demo/grupo-horizonte`. READY não equivale a CI ou Shadow ativo.
+- Inventário server-only (sem descriptografar segredos): `LANGGRAPH_SHADOW_N8N_WEBHOOK_URL` cadastrada em production, `LANGGRAPH_SHADOW_TRANSPORT` ausente e `N8N_SHADOW_WEBHOOK_TOKEN` ausente. O valor da flag sensível `LANGGRAPH_SHADOW_ENABLED` não foi atestado. Não ativar implicitamente.
+- Token Webhook v2 foi exposto em screenshot anterior e deve ser rotacionado **na credencial existente** antes do próximo teste público. O novo token separado deve ser provisionado no backend da Demo após autorização. O S2S n8n -> LangGraph foi corrigido, não precisa de nova rotação.
+- Fase 1: o Produto só permite dispatch quando a seleção versionada (provider_key, model_key, config_version) do Shadow corresponde exatamente à seleção oficial. Não pressupõe nomes de modelos ou regras de cliente. Provedores diferentes ficam cadastrados, porém indisponíveis para comparações antes da Fase 3 autorizada.
+- Na verificação, o GitHub Actions `Demo Shadow transport offline` do SHA acima terminou `failure` em cerca de quatro segundos e não disponibilizou logs de execução pelo conector; a causa **não** foi estabelecida. Investigar runners/limites e rodar CI antes de homologar.
+- Próximos gates: rotação Webhook, variáveis server-only completas, decisão operacional explícita de habilitação isolada, correlação real Produto -> n8n oficial + Shadow Gemini/Gemini e avaliação sem benchmark no gerador. Teste com LLM e comparação financeira exigem autorização própria; SQL real no Shadow permanece desligado.
