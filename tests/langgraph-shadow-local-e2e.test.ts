@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
+import { existsSync } from "node:fs";
 import { once } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -69,12 +70,12 @@ vi.mock("@/lib/server-logger", () => ({
   }
 }));
 
+// Local server lives in a separate checkout. CI injects its pinned location;
+ // local development can use a sibling repository without user-specific paths.
 const LANGGRAPH_REPO =
-  process.env.LANGGRAPH_REPO_DIR ||
-  "C:\\Users\\Leandro Silveira\\Documents\\agente-sql-langgraph";
+  process.env.LANGGRAPH_REPO_DIR?.trim() || join(process.cwd(), "..", "agente-sql-langgraph");
 const PYTHON_EXECUTABLE =
-  process.env.PYTHON_EXECUTABLE ||
-  "C:\\Users\\Leandro Silveira\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe";
+  process.env.PYTHON_EXECUTABLE?.trim() || (process.platform === "win32" ? "python" : "python3");
 const AGENT_RUN_ID = "11111111-1111-4111-8111-111111111111";
 const APPROVED_SQL = "SELECT id FROM schema_test.table_test";
 const LANGGRAPH_S2S_TOKEN = "test-local-s2s-token";
@@ -200,6 +201,10 @@ function officialN8nResponse(path: string) {
 }
 
 async function startLangGraphServer(): Promise<LocalLangGraphServer> {
+  if (!existsSync(join(LANGGRAPH_REPO, "app", "local_testing", "internal_sql_agent_v1_local_server.py"))) {
+    throw new Error("LangGraph local test source missing; configure LANGGRAPH_REPO_DIR to a verified checkout.");
+  }
+
   const child = spawn(
     PYTHON_EXECUTABLE,
     ["-m", "app.local_testing.internal_sql_agent_v1_local_server", "--port", "0"],
@@ -227,6 +232,10 @@ async function startLangGraphServer(): Promise<LocalLangGraphServer> {
 async function waitForReady(child: ChildProcess) {
   let stdout = "";
   let stderr = "";
+  let launchFailure = "";
+  child.once("error", (error: Error) => {
+    launchFailure = error.message;
+  });
 
   child.stdout?.on("data", (chunk: Buffer) => {
     stdout += chunk.toString("utf8");
@@ -237,6 +246,9 @@ async function waitForReady(child: ChildProcess) {
 
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
+    if (launchFailure) {
+      throw new Error("LangGraph local server could not launch: " + launchFailure);
+    }
     const line = stdout
       .split(/\r?\n/)
       .find((item) => item.includes("langgraph_local_shadow_ready"));
@@ -346,6 +358,13 @@ async function listen(server: Server) {
 describe("LangGraph local shadow E2E", () => {
   beforeEach(() => {
     resetRouteMocks();
+  });
+
+  it("fails clearly when the local Python executable is absent", async () => {
+    const child = spawn("__missing_python_for_shadow_e2e__", ["--version"], {
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    await expect(waitForReady(child)).rejects.toThrow("LangGraph local server could not launch");
   });
 
   it("dispatches generate and execute shadows to local LangGraph and persists 1:N evidence", async () => {

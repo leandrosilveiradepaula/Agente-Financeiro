@@ -33,6 +33,20 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout pinned local-test LangGraph implementation
+        uses: actions/checkout@v4
+        with:
+          repository: leandrosilveiradepaula/agente-sql-langgraph
+          ref: 978e88b3a603184d81f7b3019faf06704c1b01a5
+          path: _shadow_langgraph_backend
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: _shadow_langgraph_backend/requirements.txt
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -41,5 +55,10 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: TypeScript contract
         run: npm run lint
+      - name: Install pinned local test runtime
+        run: python -m pip install -r _shadow_langgraph_backend/requirements.txt
       - name: Shadow tests (no real services)
+        env:
+          LANGGRAPH_REPO_DIR: ${{ github.workspace }}/_shadow_langgraph_backend
+          PYTHON_EXECUTABLE: python
         run: npm test -- tests/langgraph-shadow-client.test.ts tests/langgraph-shadow-route-behavior.test.ts tests/langgraph-shadow-local-e2e.test.ts tests/langgraph-shadow-comparison-client.test.ts tests/langgraph-shadow-comparison-routes.test.ts tests/langgraph-shadow-provider-parity.test.ts
