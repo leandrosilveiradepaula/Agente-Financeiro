@@ -137,7 +137,9 @@ describe("LangGraph shadow client", () => {
       dispatch_ready: false,
       blockers: ["execute_target_unconfigured"]
     });
-    expect(isLangGraphShadowDispatchConfigured(relay)).toBe(false);
+    // Legacy relay can still dispatch a generate event, but cannot be
+    // declared fully ready for BOTH event types until execute is configured.
+    expect(isLangGraphShadowDispatchConfigured(relay)).toBe(true);
     const unknown = inspectLangGraphShadowDispatchConfiguration({
       ...enabledEnv, LANGGRAPH_SHADOW_TRANSPORT: "invalid-mode"
     });

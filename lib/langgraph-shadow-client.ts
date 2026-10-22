@@ -108,7 +108,13 @@ export function inspectLangGraphShadowDispatchConfiguration(
 }
 
 export function isLangGraphShadowDispatchConfigured(env: ShadowEnv = process.env): boolean {
-  return inspectLangGraphShadowDispatchConfiguration(env).dispatch_ready;
+  // Preserve existing generate-only relay semantics. The administrator's
+  // dispatch_ready flag is stricter: both generation AND approved-execution
+  // endpoints must be configured before declaring G2 fully prepared.
+  const readiness = inspectLangGraphShadowDispatchConfiguration(env);
+  return readiness.enabled &&
+    !readiness.blockers.includes("already_official") &&
+    readiness.generate_target_configured;
 }
 
 export function buildLangGraphShadowPrincipal(
