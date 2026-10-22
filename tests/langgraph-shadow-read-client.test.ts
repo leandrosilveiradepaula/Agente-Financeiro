@@ -142,6 +142,93 @@ describe("LangGraph shadow read client", () => {
     });
   });
 
+  it("rejects cross-run, duplicate and over-limit n8n evidence before reaching the browser", async () => {
+    const relayEnv = {
+      ...env,
+      LANGGRAPH_SHADOW_EVIDENCE_TRANSPORT: "n8n",
+      LANGGRAPH_SHADOW_EVIDENCE_N8N_WEBHOOK_URL:
+        "https://n8n.example.test/webhook/langgraph-shadow-evidence-v1",
+      N8N_SHADOW_EVIDENCE_WEBHOOK_TOKEN: "synthetic-relay-token"
+    };
+    const item = { ...shadowRun, agent_run_id: "agent-1", shadow_record_id: "record-1" };
+    const other = { ...item, shadow_record_id: "record-2" };
+    const valid = { contract_version: "1", agent_run_id: "agent-1", items: [item, other] };
+
+    const good = await listLangGraphShadowRuns("agent-1", { limit: 2 }, {
+      env: relayEnv, fetchImpl: vi.fn().mockResolvedValue(jsonResponse(200, valid))
+    });
+    expect(good.status).toBe("ok");
+
+    const invalid = [
+      { ...valid, agent_run_id: "other-agent" },
+      { ...valid, agent_run_id: undefined },
+      { ...valid, items: [item, { ...other, agent_run_id: "other-agent", sql: "SELECT confidential" }] },
+      { ...valid, items: [item, item] },
+      { ...valid, items: [item, { ...other, shadow_record_id: "" }] },
+      { ...valid, items: [item, other, { ...item, shadow_record_id: "record-3" }] }
+    ];
+    for (const body of invalid) {
+      const result = await listLangGraphShadowRuns("agent-1", { limit: 2 }, {
+        env: relayEnv, fetchImpl: vi.fn().mockResolvedValue(jsonResponse(200, body))
+      });
+      expect(result.status).toBe("invalid_response");
+      expect(JSON.stringify(result)).not.toContain("confidential");
+    }
+    const overRequestedLimit = await listLangGraphShadowRuns("agent-1", { limit: 1 }, {
+      env: relayEnv, fetchImpl: vi.fn().mockResolvedValue(jsonResponse(200, valid))
+    });
+    expect(overRequestedLimit.status).toBe("invalid_response");
+  });
+
+  it("rejects unrelated detail IDs and invalid relay visualization topology", async () => {
+    const relayEnv = {
+      ...env,
+      LANGGRAPH_SHADOW_EVIDENCE_TRANSPORT: "n8n",
+      LANGGRAPH_SHADOW_EVIDENCE_N8N_WEBHOOK_URL:
+        "https://n8n.example.test/webhook/langgraph-shadow-evidence-v1",
+      N8N_SHADOW_EVIDENCE_WEBHOOK_TOKEN: "synthetic-relay-token"
+    };
+    const requested = { ...shadowRun, agent_run_id: "agent-1", shadow_record_id: "record-1" };
+    const otherRecord = { ...requested, shadow_record_id: "other-record" };
+    const detail = await getLangGraphShadowRun("record-1", {
+      env: relayEnv,
+      fetchImpl: vi.fn().mockResolvedValue(
+        jsonResponse(200, { contract_version: "1", ...otherRecord })
+      )
+    });
+    expect(detail.status).toBe("invalid_response");
+
+    const validGraph = {
+      contract_version: "1",
+      run: requested,
+      steps: [
+        { id: "one", order: 0, label: "receive_question", status: "ok" },
+        { id: "two", order: 1, label: "final", status: "ok" }
+      ],
+      edges: [{ source: "one", target: "two" }],
+      flags: { requires_reapproval: false }
+    };
+    const okay = await getLangGraphShadowRunVisualization("record-1", {
+      env: relayEnv,
+      fetchImpl: vi.fn().mockResolvedValue(jsonResponse(200, validGraph))
+    });
+    expect(okay.status).toBe("ok");
+    const malformed = [
+      { ...validGraph, run: otherRecord },
+      { ...validGraph, steps: [validGraph.steps[0], validGraph.steps[0]] },
+      { ...validGraph, edges: [{ source: "one", target: "missing" }] },
+      { ...validGraph, steps: Array.from({ length: 101 }, (_, i) => ({
+        id: `step-${i}`, order: i, label: "step", status: "ok"
+      })) }
+    ];
+    for (const graph of malformed) {
+      const result = await getLangGraphShadowRunVisualization("record-1", {
+        env: relayEnv, fetchImpl: vi.fn().mockResolvedValue(jsonResponse(200, graph))
+      });
+      expect(result.status).toBe("invalid_response");
+    }
+  });
+
   it("fails closed on untrusted webhook destinations and absent secrets", async () => {
     const good = {
       ...env, VERCEL: "1",
