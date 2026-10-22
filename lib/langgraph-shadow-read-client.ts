@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import { isLocalOrPrivateHostname } from "@/lib/langgraph-shadow-client";
 import type {
   ShadowRunSummary,
@@ -24,6 +25,15 @@ type ShadowReadFetch = typeof fetch;
 type ShadowReadClientOptions = {
   env?: ShadowReadEnv;
   fetchImpl?: ShadowReadFetch;
+};
+
+type RelayRequest =
+  | { operation: "list"; agent_run_id: string; limit: number }
+  | { operation: "detail" | "visualization"; shadow_record_id: string };
+type ReadTarget = {
+  url: string;
+  mode: "direct" | "n8n";
+  init: Pick<RequestInit, "method" | "headers" | "body" | "redirect">;
 };
 
 export type LangGraphShadowReadResult<T> =
@@ -55,7 +65,8 @@ export async function listLangGraphShadowRuns(
   return readLangGraphShadow(
     `/v1/internal/agent-runs/${encodeURIComponent(agentRunId)}/shadow-runs?limit=${limit}`,
     parseShadowRunList,
-    options
+    options,
+    { operation: "list", agent_run_id: agentRunId, limit }
   );
 }
 
@@ -66,7 +77,8 @@ export async function getLangGraphShadowRun(
   return readLangGraphShadow(
     `/v1/internal/shadow-runs/${encodeURIComponent(shadowRecordId)}`,
     parseShadowRunRecord,
-    options
+    options,
+    { operation: "detail", shadow_record_id: shadowRecordId }
   );
 }
 
@@ -77,7 +89,8 @@ export async function getLangGraphShadowRunVisualization(
   return readLangGraphShadow(
     `/v1/internal/shadow-runs/${encodeURIComponent(shadowRecordId)}/visualization`,
     parseShadowRunVisualization,
-    options
+    options,
+    { operation: "visualization", shadow_record_id: shadowRecordId }
   );
 }
 
@@ -90,62 +103,50 @@ export function sanitizeShadowRunVisualizationForBrowser(
 async function readLangGraphShadow<T>(
   path: string,
   parser: (value: unknown) => T | null,
-  options: ShadowReadClientOptions
+  options: ShadowReadClientOptions,
+  relay: RelayRequest
 ): Promise<LangGraphShadowReadResult<T>> {
   const env = options.env ?? process.env;
-  let url: string;
-  let s2sToken: string;
-
+  let target: ReadTarget;
   try {
-    url = buildShadowUrl(env, path);
-    s2sToken = getS2sToken(env);
+    target = resolveReadTarget(env, path, relay);
   } catch {
     return sanitizedFailure("configuration_error");
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), getShadowTimeoutMs(env));
+  const timeout = setTimeout(
+    () => controller.abort(),
+    getShadowTimeoutMs(env, target.mode)
+  );
   const fetchImpl = options.fetchImpl ?? fetch;
 
   try {
-    const response = await fetchImpl(url, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${s2sToken}`,
-        Accept: "application/json"
-      },
+    const response = await fetchImpl(target.url, {
+      ...target.init,
       cache: "no-store",
       signal: controller.signal
     });
-
-    if (!response.ok) {
-      return sanitizedHttpFailure(response.status);
+    if (!response.ok) return sanitizedHttpFailure(response.status);
+    if (target.mode === "n8n" && response.status !== 200) {
+      return sanitizedFailure("invalid_response", undefined, response.status);
     }
 
     let body: unknown;
-
     try {
       body = await response.json();
     } catch {
       return sanitizedFailure("invalid_response", undefined, response.status);
     }
-
-    const parsed = parser(body);
-
-    if (!parsed) {
+    if (target.mode === "n8n" &&
+        (!isRecord(body) || body.contract_version !== "1")) {
       return sanitizedFailure("invalid_response", undefined, response.status);
     }
-
-    return {
-      status: "ok",
-      httpStatus: response.status,
-      data: parsed
-    };
+    const parsed = parser(body);
+    if (!parsed) return sanitizedFailure("invalid_response", undefined, response.status);
+    return { status: "ok", httpStatus: response.status, data: parsed };
   } catch (error) {
-    if (isAbortError(error)) {
-      return sanitizedFailure("timeout", error);
-    }
-
+    if (isAbortError(error)) return sanitizedFailure("timeout", error);
     return sanitizedFailure("network_error", error);
   } finally {
     clearTimeout(timeout);
@@ -395,36 +396,91 @@ function safeStringArrayField(value: Record<string, unknown>, key: string): stri
     : [];
 }
 
-// Read can remain available when dispatch is off; readiness is deliberately
-// independent of LANGGRAPH_SHADOW_ENABLED and does not make HTTP calls.
+// Local configuration validation, not proof of network/auth/evidence.
 export function isLangGraphShadowEvidenceReadConfigured(
   env: ShadowReadEnv = process.env
 ): boolean {
-  if (!env.LANGGRAPH_INTERNAL_BASE_URL?.trim() ||
-      !env.LANGGRAPH_S2S_TOKEN?.trim()) return false;
   try {
-    buildShadowUrl(env, "/v1/internal/shadow-runs/test");
+    resolveReadTarget(
+      env,
+      "/v1/internal/agent-runs/test/shadow-runs?limit=10",
+      { operation: "list", agent_run_id: "test", limit: 10 }
+    );
     return true;
   } catch {
     return false;
   }
 }
 
-function buildShadowUrl(env: ShadowReadEnv, path: string): string {
+function resolveReadTarget(
+  env: ShadowReadEnv, path: string, relay: RelayRequest
+): ReadTarget {
+  const mode = env.LANGGRAPH_SHADOW_EVIDENCE_TRANSPORT?.trim() || "direct";
+  if (mode === "n8n") {
+    const url = evidenceRelayUrl(env);
+    const token = env.N8N_SHADOW_EVIDENCE_WEBHOOK_TOKEN?.trim();
+    if (!token) throw new Error("Evidence credential missing");
+    return {
+      mode: "n8n",
+      url,
+      init: {
+        method: "POST",
+        headers: {
+          "X-Agent-Shadow-Evidence-Token": token,
+          "Content-Type": "application/json",
+          Accept: "application/json"
+        },
+        body: JSON.stringify({
+          contract_version: "1",
+          request_id: randomUUID(),
+          ...relay
+        }),
+        redirect: "error"
+      }
+    };
+  }
+  if (mode !== "direct") throw new Error("Unsupported evidence transport");
+  return {
+    mode: "direct",
+    url: directReadUrl(env, path),
+    init: {
+      method: "GET",
+      headers: {
+        Authorization: "Bearer " + getS2sToken(env),
+        Accept: "application/json"
+      },
+      redirect: "error"
+    }
+  };
+}
+
+function evidenceRelayUrl(env: ShadowReadEnv): string {
+  const raw = env.LANGGRAPH_SHADOW_EVIDENCE_N8N_WEBHOOK_URL?.trim();
+  if (!raw) throw new Error("Evidence relay URL missing");
+  const url = new URL(raw);
+  if (url.protocol !== "https:" || !url.hostname ||
+      isLocalOrPrivateHostname(url.hostname) ||
+      url.username || url.password || url.search || url.hash ||
+      url.pathname !== "/webhook/langgraph-shadow-evidence-v1") {
+    throw new Error("Unsafe evidence relay URL");
+  }
+  return url.toString();
+}
+
+function directReadUrl(env: ShadowReadEnv, path: string): string {
   const raw = env.LANGGRAPH_INTERNAL_BASE_URL?.trim();
-  // Vercel functions must not silently fall back to their own loopback.
-  if (env.VERCEL === "1" && !raw) throw new Error("External Shadow URL required");
+  if (env.VERCEL === "1" && !raw) throw new Error("Explicit URL required");
   const url = new URL(raw || DEFAULT_LANGGRAPH_BASE_URL);
-  if (!["http:", "https:"].includes(url.protocol) ||
-      !url.hostname || url.username || url.password || url.search ||
-      url.hash || (url.pathname !== "/" && url.pathname !== "")) {
-    throw new Error("Invalid Shadow evidence URL");
+  if (!["http:", "https:"].includes(url.protocol) || !url.hostname ||
+      url.username || url.password || url.search || url.hash ||
+      (url.pathname !== "/" && url.pathname !== "")) {
+    throw new Error("Invalid direct URL");
   }
   if (env.VERCEL === "1" &&
       (url.protocol !== "https:" || isLocalOrPrivateHostname(url.hostname))) {
-    throw new Error("Unsafe Shadow evidence URL for Vercel");
+    throw new Error("Unsafe direct URL on Vercel");
   }
-  return `${url.toString().replace(/\/+$/, "")}${path}`;
+  return url.toString().replace(/\/+$/, "") + path;
 }
 
 function getS2sToken(env: ShadowReadEnv): string {
@@ -435,12 +491,15 @@ function getS2sToken(env: ShadowReadEnv): string {
   return token;
 }
 
-function getShadowTimeoutMs(env: ShadowReadEnv): number {
-  const rawTimeout = env.LANGGRAPH_SHADOW_TIMEOUT_MS?.trim();
-  const parsedTimeout = rawTimeout ? Number.parseInt(rawTimeout, 10) : DEFAULT_SHADOW_TIMEOUT_MS;
+function getShadowTimeoutMs(env: ShadowReadEnv, mode: "direct" | "n8n"): number {
+  const rawTimeout = mode === "n8n"
+    ? env.LANGGRAPH_SHADOW_EVIDENCE_TIMEOUT_MS?.trim()
+    : env.LANGGRAPH_SHADOW_TIMEOUT_MS?.trim();
+  const fallback = mode === "n8n" ? 5000 : DEFAULT_SHADOW_TIMEOUT_MS;
+  const parsedTimeout = rawTimeout ? Number.parseInt(rawTimeout, 10) : fallback;
 
   if (!Number.isFinite(parsedTimeout)) {
-    return DEFAULT_SHADOW_TIMEOUT_MS;
+    return fallback;
   }
 
   return Math.min(
