@@ -65,7 +65,8 @@ describe("DEMO commercial interface contract", () => {
     expect(questionSource).toContain("indisponível neste fluxo");
     expect(routeSource).toContain("resolveLlmSelection");
     expect(routeSource).toContain("llm_registry_version");
-    expect(routeSource).toContain("llm_selection: resolvedLlmSelection.selection");
+    expect(routeSource).toContain("llmSelection: shadowLlmSelection?.selection ?? null");
+    expect(routeSource).toContain("official: officialLlmSelection.selection");
   });
 
   it("lets the client persist a preferred authorized LLM", async () => {

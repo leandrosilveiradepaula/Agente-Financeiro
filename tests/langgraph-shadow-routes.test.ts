@@ -36,7 +36,7 @@ describe("LangGraph shadow route integration", () => {
     const responsePayloadBlock = sliceBetween(
       generateRoute,
       "const responsePayload: GenerateSqlResponse =",
-      "if (parallelShadowEnabled && shadowLlmSelection !== null)"
+      "\n    };\n"
     );
 
     expect(generateRoute).toContain("const responsePayload: GenerateSqlResponse =");
