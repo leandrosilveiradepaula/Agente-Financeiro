@@ -48,3 +48,5 @@ jobs:
         run: npm run lint
       - name: Isolated n8n / relay / direct Shadow contract tests
         run: npm test -- tests/langgraph-shadow-client.test.ts tests/langgraph-shadow-route-behavior.test.ts tests/shadow-phase-gate.test.ts tests/llm-provider-registry.test.ts
+      - name: Complete offline unit and route regression
+        run: npm test
