@@ -133,3 +133,28 @@ rotacionado, canal de leitura de evidências autenticado sem expor
 rede privada, ensaio Gemini/Gemini com autorização de chamadas pagas,
 comprovação real da identidade do modelo usada no n8n oficial,
 e paridade SQL/financeira em etapa segregada.
+
+## Read-only evidence relay over n8n (optional)
+
+Transport: LANGGRAPH_SHADOW_EVIDENCE_TRANSPORT=n8n on the Product server.
+Separate server-only variables: LANGGRAPH_SHADOW_EVIDENCE_N8N_WEBHOOK_URL,
+N8N_SHADOW_EVIDENCE_WEBHOOK_TOKEN, LANGGRAPH_SHADOW_EVIDENCE_TIMEOUT_MS.
+The Product calls a NEW n8n workflow, not the existing seven-node
+Shadow generation workflow. URL path is /webhook/langgraph-shadow-evidence-v1.
+Webhook Header Auth Name is X-Agent-Shadow-Evidence-Token, with no Bearer.
+n8n -> LangGraph uses the already configured S2S Authorization Bearer header.
+
+Only the Product's authenticated and authorized admin route can request
+evidence. The n8n relay verifies its own service token, fixed operations
+and sanitizes the result. It cannot enforce Product tenant policies; the
+Product BFF must continue its ownership and profile checks.
+
+Client refuses HTTP, internal hosts, arbitrary URL paths, embedded
+credentials and redirects. It will not fall back from n8n mode to direct.
+Read transport is independent of LANGGRAPH_SHADOW_ENABLED, but configured
+does NOT mean connected, deployed or financial parity proven.
+
+Companion candidate: agente-sql-langgraph PR #147. Workflow import,
+Header Auth configuration, Vercel secrets, activation, LLM calls and SQL
+real execution require separate operator approval. No deployment from
+merging this code alone.

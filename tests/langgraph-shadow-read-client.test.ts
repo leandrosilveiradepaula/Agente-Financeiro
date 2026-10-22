@@ -71,6 +71,134 @@ function calledHeaders(fetchImpl: ReturnType<typeof vi.fn>) {
 }
 
 describe("LangGraph shadow read client", () => {
+  it("uses the distinct authenticated n8n evidence relay instead of LangGraph S2S", async () => {
+    const relayEnv = {
+      ...env,
+      VERCEL: "1",
+      LANGGRAPH_SHADOW_EVIDENCE_TRANSPORT: "n8n",
+      LANGGRAPH_SHADOW_EVIDENCE_N8N_WEBHOOK_URL:
+        "https://n8n.example.test/webhook/langgraph-shadow-evidence-v1",
+      N8N_SHADOW_EVIDENCE_WEBHOOK_TOKEN: "synthetic-relay-token",
+      LANGGRAPH_INTERNAL_BASE_URL: "",
+      LANGGRAPH_S2S_TOKEN: ""
+    };
+    expect(isLangGraphShadowEvidenceReadConfigured(relayEnv)).toBe(true);
+    const item = { ...shadowRun, agent_run_id: "agent-1", shadow_record_id: "record-1" };
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, {
+      contract_version: "1", agent_run_id: "agent-1", items: [item]
+    }));
+    const result = await listLangGraphShadowRuns("agent-1", { limit: 5 }, {
+      env: relayEnv, fetchImpl
+    });
+    expect(result.status).toBe("ok");
+    const [target, init] = fetchImpl.mock.calls[0];
+    expect(target).toBe("https://n8n.example.test/webhook/langgraph-shadow-evidence-v1");
+    expect(init.method).toBe("POST");
+    expect(init.cache).toBe("no-store");
+    expect(init.redirect).toBe("error");
+    expect(init.headers).toEqual({
+      "X-Agent-Shadow-Evidence-Token": "synthetic-relay-token",
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    });
+    const sent = JSON.parse(String(init.body));
+    expect(sent).toEqual({
+      contract_version: "1", request_id: expect.any(String),
+      operation: "list", agent_run_id: "agent-1", limit: 5
+    });
+    expect(JSON.stringify(sent)).not.toContain("synthetic-relay-token");
+    expect(JSON.stringify(sent)).not.toContain("LANGGRAPH_S2S_TOKEN");
+  });
+
+  it("routes detail and visualization through the same read-only bridge", async () => {
+    const relayEnv = {
+      ...env,
+      LANGGRAPH_SHADOW_EVIDENCE_TRANSPORT: "n8n",
+      LANGGRAPH_SHADOW_EVIDENCE_N8N_WEBHOOK_URL:
+        "https://n8n.example.test/webhook/langgraph-shadow-evidence-v1",
+      N8N_SHADOW_EVIDENCE_WEBHOOK_TOKEN: "synthetic-relay-token",
+      LANGGRAPH_S2S_TOKEN: ""
+    };
+    const item = { ...shadowRun, agent_run_id: "agent-1", shadow_record_id: "record-1" };
+    const detailFetch = vi.fn().mockResolvedValue(jsonResponse(200, {
+      contract_version: "1", ...item
+    }));
+    const detail = await getLangGraphShadowRun("record-1", {
+      env: relayEnv, fetchImpl: detailFetch
+    });
+    expect(detail.status).toBe("ok");
+    expect(JSON.parse(String(detailFetch.mock.calls[0][1].body))).toMatchObject({
+      operation: "detail", shadow_record_id: "record-1"
+    });
+    const graphFetch = vi.fn().mockResolvedValue(jsonResponse(200, {
+      ...visualization, run: item
+    }));
+    const graph = await getLangGraphShadowRunVisualization("record-1", {
+      env: relayEnv, fetchImpl: graphFetch
+    });
+    expect(graph.status).toBe("ok");
+    expect(JSON.parse(String(graphFetch.mock.calls[0][1].body))).toMatchObject({
+      operation: "visualization", shadow_record_id: "record-1"
+    });
+  });
+
+  it("fails closed on untrusted webhook destinations and absent secrets", async () => {
+    const good = {
+      ...env, VERCEL: "1",
+      LANGGRAPH_SHADOW_EVIDENCE_TRANSPORT: "n8n",
+      LANGGRAPH_SHADOW_EVIDENCE_N8N_WEBHOOK_URL:
+        "https://n8n.example.test/webhook/langgraph-shadow-evidence-v1",
+      N8N_SHADOW_EVIDENCE_WEBHOOK_TOKEN: "synthetic-relay-token",
+      LANGGRAPH_S2S_TOKEN: ""
+    };
+    for (const bad of [
+      "http://n8n.example.test/webhook/langgraph-shadow-evidence-v1",
+      "https://127.0.0.1/webhook/langgraph-shadow-evidence-v1",
+      "https://10.0.0.5/webhook/langgraph-shadow-evidence-v1",
+      "https://user:pass@n8n.example.test/webhook/langgraph-shadow-evidence-v1",
+      "https://n8n.example.test/webhook/langgraph-shadow-evidence-v1?token=x",
+      "https://n8n.example.test/webhook/other"
+    ]) {
+      const badEnv = { ...good, LANGGRAPH_SHADOW_EVIDENCE_N8N_WEBHOOK_URL: bad };
+      expect(isLangGraphShadowEvidenceReadConfigured(badEnv)).toBe(false);
+      const fetchImpl = vi.fn();
+      expect((await listLangGraphShadowRuns("agent-1", undefined, {
+        env: badEnv, fetchImpl
+      })).status).toBe("configuration_error");
+      expect(fetchImpl).not.toHaveBeenCalled();
+    }
+    expect(isLangGraphShadowEvidenceReadConfigured({
+      ...good, N8N_SHADOW_EVIDENCE_WEBHOOK_TOKEN: ""
+    })).toBe(false);
+    expect(isLangGraphShadowEvidenceReadConfigured({
+      ...good, LANGGRAPH_SHADOW_EVIDENCE_TRANSPORT: "unknown"
+    })).toBe(false);
+  });
+
+  it("rejects non-200 and malformed evidence relay responses without leaking raw fields", async () => {
+    const relayEnv = {
+      ...env,
+      LANGGRAPH_SHADOW_EVIDENCE_TRANSPORT: "n8n",
+      LANGGRAPH_SHADOW_EVIDENCE_N8N_WEBHOOK_URL:
+        "https://n8n.example.test/webhook/langgraph-shadow-evidence-v1",
+      N8N_SHADOW_EVIDENCE_WEBHOOK_TOKEN: "hidden-token"
+    };
+    const acceptedOnly = await listLangGraphShadowRuns("agent-1", undefined, {
+      env: relayEnv, fetchImpl: vi.fn().mockResolvedValue(
+        jsonResponse(202, { contract_version: "1", items: [] })
+      )
+    });
+    expect(acceptedOnly.status).toBe("invalid_response");
+    const wrongContract = await listLangGraphShadowRuns("agent-1", undefined, {
+      env: relayEnv, fetchImpl: vi.fn().mockResolvedValue(
+        jsonResponse(200, { items: [], sql: "SELECT confidential" })
+      )
+    });
+    expect(wrongContract.status).toBe("invalid_response");
+    expect(JSON.stringify(wrongContract)).not.toContain("SELECT confidential");
+  });
+
+
   it("requires a safe explicit evidence endpoint on Vercel, independently of dispatch", async () => {
     const configured = {
       ...env,
