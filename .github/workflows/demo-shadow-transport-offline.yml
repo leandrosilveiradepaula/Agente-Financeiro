@@ -7,12 +7,31 @@ on:
       - "lib/langgraph-shadow-client.ts"
       - "tests/langgraph-shadow-client.test.ts"
       - "docs/shadow-parallel-n8n-g1.md"
+      - "app/api/generate-sql/route.ts"
+      - "app/api/llm-models/route.ts"
+      - "lib/shadow-phase-gate.ts"
+      - "tests/shadow-phase-gate.test.ts"
+      - "tests/langgraph-shadow-route-behavior.test.ts"
+      - "tests/langgraph-shadow-routes.test.ts"
+      - "tests/langgraph-shadow-admin-routes.test.ts"
+      - "tests/demo-interface-contract.test.ts"
+      - ".env.example"
       - ".github/workflows/demo-shadow-transport-offline.yml"
   push:
     branches: [demo/grupo-horizonte]
     paths:
       - "lib/langgraph-shadow-client.ts"
       - "tests/langgraph-shadow-client.test.ts"
+      - "app/api/generate-sql/route.ts"
+      - "app/api/llm-models/route.ts"
+      - "lib/shadow-phase-gate.ts"
+      - "tests/shadow-phase-gate.test.ts"
+      - "tests/langgraph-shadow-route-behavior.test.ts"
+      - "tests/langgraph-shadow-routes.test.ts"
+      - "tests/langgraph-shadow-admin-routes.test.ts"
+      - "tests/demo-interface-contract.test.ts"
+      - "docs/shadow-parallel-n8n-g1.md"
+      - ".env.example"
       - ".github/workflows/demo-shadow-transport-offline.yml"
 
 permissions:
@@ -34,4 +53,6 @@ jobs:
       - name: TypeScript
         run: npm run lint
       - name: Isolated n8n / relay / direct Shadow contract tests
-        run: npm test -- tests/langgraph-shadow-client.test.ts
+        run: npm test -- tests/langgraph-shadow-client.test.ts tests/langgraph-shadow-route-behavior.test.ts tests/shadow-phase-gate.test.ts tests/llm-provider-registry.test.ts
+      - name: Complete offline unit and route regression
+        run: npm test

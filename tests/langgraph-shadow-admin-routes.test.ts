@@ -179,7 +179,9 @@ describe("admin Shadow BFF routes", () => {
     expect(response.status).toBe(200);
     expect(body).toEqual({
       success: true,
-      shadow_runs: [shadowRun]
+      shadow_runs: [shadowRun],
+      comparison_enabled: false,
+      shadow_enabled: false
     });
     expect(routeMocks.listLangGraphShadowRuns).toHaveBeenCalledWith(agentRunId, {
       limit: 25
@@ -354,7 +356,12 @@ describe("admin Shadow BFF routes", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ success: true, shadow_runs: [] });
+    expect(body).toEqual({
+      success: true,
+      shadow_runs: [],
+      comparison_enabled: false,
+      shadow_enabled: false
+    });
   });
 
   it("returns visualization after resolving and authorizing the correlated official run", async () => {

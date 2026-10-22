@@ -36,11 +36,12 @@ describe("LangGraph shadow route integration", () => {
     const responsePayloadBlock = sliceBetween(
       generateRoute,
       "const responsePayload: GenerateSqlResponse =",
-      "if (isLangGraphShadowEnabled())"
+      "\n    };\n"
     );
 
     expect(generateRoute).toContain("const responsePayload: GenerateSqlResponse =");
     expect(generateRoute).toContain("return NextResponse.json(responsePayload)");
+    expect(generateRoute).toContain("isShadowPhaseOneProviderMatch(");
     expect(responsePayloadBlock).not.toMatch(/shadow|langgraph/i);
   });
 

@@ -56,7 +56,8 @@ describe("DEMO commercial interface contract", () => {
     expect(pageSource).toContain("/api/llm-models?target=shadow");
     expect(pageSource).toContain("shadowDispatchConfigured");
     expect(questionSource).toContain("A comparação Shadow ainda não está configurada");
-    expect(routeSource).toContain("if (directShadowEnabled && shadowLlmSelection !== null)");
+    expect(routeSource).toContain("if (parallelShadowEnabled && shadowLlmSelection !== null)");
+    expect(routeSource).toContain("isShadowPhaseOneProviderMatch(");
     expect(pageSource).toContain("provider_key: selectedLlmModel.provider_key");
     expect(pageSource).toContain("model_key: selectedLlmModel.model_key");
     expect(pageSource).toContain("config_version: selectedLlmModel.config_version");
@@ -64,7 +65,8 @@ describe("DEMO commercial interface contract", () => {
     expect(questionSource).toContain("indisponível neste fluxo");
     expect(routeSource).toContain("resolveLlmSelection");
     expect(routeSource).toContain("llm_registry_version");
-    expect(routeSource).toContain("llm_selection: resolvedLlmSelection.selection");
+    expect(routeSource).toContain("llmSelection: shadowLlmSelection?.selection ?? null");
+    expect(routeSource).toContain("official: officialLlmSelection.selection");
   });
 
   it("lets the client persist a preferred authorized LLM", async () => {
