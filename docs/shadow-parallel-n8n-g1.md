@@ -158,3 +158,23 @@ Companion candidate: agente-sql-langgraph PR #147. Workflow import,
 Header Auth configuration, Vercel secrets, activation, LLM calls and SQL
 real execution require separate operator approval. No deployment from
 merging this code alone.
+
+## G2: invariantes de correlação na fronteira de autorização do Produto
+
+O n8n valida e sanitiza a resposta, mas não substitui a autorização de
+sessão, perfil e ownership no BFF. Antes de retornar dados de transporte
+`n8n` ao browser, o cliente server-only do Produto deve validar:
+
+- No `list`, o `agent_run_id` externo e cada item devem coincidir
+  exatamente com o run já autorizado, sem `shadow_record_id` repetido.
+  A lista não pode ultrapassar o `limit` solicitado.
+- No `detail`, o `shadow_record_id` recebido deve corresponder ao solicitado.
+- No `visualization`, a identidade da execução deve corresponder ao
+  `shadow_record_id` solicitado. A topologia não pode conter IDs de etapas
+  duplicados, arestas sem referência ou excesso de nós/arestas.
+- Violações resultam em `invalid_response`, sem payload bruto e sem fallback
+  para a API interna do LangGraph. O workflow n8n não decide tenant/permissão.
+
+Esses checks são estruturais e multicliente; não usam regras financeiras,
+SQL, benchmark ou atalhos por cliente. Não constituem prova de conectividade
+real entre Produto e n8n, pois o novo relay permanece candidato inativo.
