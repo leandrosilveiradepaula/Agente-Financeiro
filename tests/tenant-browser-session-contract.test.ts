@@ -14,7 +14,7 @@ vi.mock("next/server", () => ({
   NextResponse: {
     json: (body: unknown, init?: { status?: number; headers?: Record<string, string> }) => ({
       status: init?.status ?? 200,
-      headers: init?.headers,
+      headers: new Headers(init?.headers),
       json: async () => body,
       cookies: { set: mocks.setSessionCookie }
     })
@@ -74,7 +74,7 @@ describe("session-to-browser tenant identity boundary", () => {
     });
     const { GET } = await import("@/app/api/auth/session/route");
     const response = await GET();
-    expect(response.headers?.["Cache-Control"]).toBe("no-store");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect((await response.json()).user).toMatchObject({
       id: USER, organizationId: ORGANIZATION, tenantIdentityEnabled: true
     });
