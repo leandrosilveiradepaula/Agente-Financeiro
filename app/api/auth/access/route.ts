@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authenticateUser } from "@/lib/auth/auth-service";
-import { createSession } from "@/lib/auth/session-service";
+import { createSession, getSessionByToken } from "@/lib/auth/session-service";
+import { isTenantIdentityEnabled } from "@/lib/tenant-identity";
 import {
   AGENT_SESSION_COOKIE,
   getAgentSessionCookieOptions,
@@ -55,6 +56,18 @@ export async function POST(request: Request) {
   }
 
   const session = await createSession(authResult.user.id, metadata);
+  const tenantEnabled = isTenantIdentityEnabled();
+  const activeSession = tenantEnabled
+    ? await getSessionByToken(session.rawToken)
+    : null;
+  if (tenantEnabled && activeSession?.userId !== authResult.user.id) {
+    // Fail closed if the new session cannot be verified against the active
+    // persisted tenant membership source. Do not issue an unscoped cookie.
+    return NextResponse.json(
+      { success: false, error: "tenant_session_unavailable" },
+      { status: 503, headers: { "Cache-Control": "no-store" } }
+    );
+  }
 
   const response = NextResponse.json({
     success: true,
@@ -62,9 +75,15 @@ export async function POST(request: Request) {
       id: authResult.user.id,
       name: authResult.user.name,
       email: authResult.user.email,
-      profile: authResult.user.user_profile
+      profile: authResult.user.user_profile,
+      ...(tenantEnabled
+        ? {
+            tenantIdentityEnabled: true,
+            organizationId: activeSession?.organizationId ?? null
+          }
+        : {})
     }
-  });
+  }, { headers: { "Cache-Control": "no-store" } });
 
   response.cookies.set(
     AGENT_SESSION_COOKIE,

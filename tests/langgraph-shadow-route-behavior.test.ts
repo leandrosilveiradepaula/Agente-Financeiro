@@ -656,6 +656,31 @@ describe("LangGraph shadow route behavior", () => {
     });
     expect(routeMocks.dispatchLangGraphExecuteApprovedShadow).not.toHaveBeenCalled();
   });
+  it("never auto-executes SQL during Generate when an authenticated tenant is active", async () => {
+    resetRouteMocks();
+    const organization = "11111111-1111-4111-8111-111111111111";
+    vi.stubEnv("AGENT_TENANT_IDENTITY_ENABLED", "true");
+    vi.stubEnv("AGENT_TENANT_OFFICIAL_ORGANIZATION_ID", organization);
+    vi.stubEnv("AGENT_INTERFACE_MODE", "demo");
+    routeMocks.requireAgentSession.mockResolvedValue({
+      session: { ...session, organizationId: organization }, response: null
+    });
+    const send = mockOfficialGenerateFetch();
+    vi.stubGlobal("fetch", send);
+    routeMocks.createAgentRun.mockClear();
+    routeMocks.updateAgentRunExecution.mockClear();
+    const { POST } = await import("@/app/api/generate-sql/route");
+    const response = await POST(new Request("http://localhost/api/generate-sql", {
+      method: "POST",
+      body: JSON.stringify({ pergunta: "Qual foi o resultado financeiro?" })
+    }));
+    expect(response.status).toBe(409);
+    expect(send).not.toHaveBeenCalled();
+    expect(routeMocks.createAgentRun).not.toHaveBeenCalled();
+    expect(routeMocks.updateAgentRunExecution).not.toHaveBeenCalled();
+    expect(routeMocks.afterCallbacks).toHaveLength(0);
+  });
+
   it("refuses tenant-mode official calls without an attested datasource organization", async () => {
     const org = "11111111-1111-4111-8111-111111111111";
     for (const endpoint of ["generate", "execute"] as const) {

@@ -67,3 +67,45 @@ aplicadas no PostgreSQL real, nem prova isolamento físico de datasource,
 RLS/roles, credenciais por tenant, aprovação de execução ou paridade do
 agente financeiro. Não aplicar migration/rollback automaticamente em
 qualquer ambiente não descartável.
+
+
+## Isolamento do histórico em navegadores e Generate/Execute distintos
+
+A autenticação do Produto entrega ao browser somente a identidade
+organizacional obtida da **sessão persistida validada**. No modo tenant,
+o histórico local de SQL e de relatórios é particionado por
+`organização + usuário`, com chaves diferentes das chaves históricas
+`user-only`. Uma organização sem membership selecionada e válida
+**não tem escopo de histórico**: não lê nem grava conteúdo local e não
+recupera automaticamente o histórico legado. As origens dos IDs
+continuam sendo exclusivamente a sessão autenticada, não parâmetros
+enviados pelo navegador ou modelos.
+
+Ao autenticar outro usuário ou organização, a interface esvazia a
+área de trabalho; ao retornar à aba ou torná-la visível, revalida a
+sessão via endpoint `no-store` e recarrega a página se a organização
+ativa tiver mudado. Os registros locais históricos são preservados
+para rollback, mas **não migrados** para uma organização arbitrária.
+
+**Limite de segurança:** localStorage só oferece conveniência visual;
+o titular do navegador pode inspecioná-lo. Isso não substitui
+autorização server-side nem pode ser usado como prova de isolamento de
+dados financeiros. SQL e evidências retornadas pela API devem continuar
+com filtros de organização e RBAC validados no servidor.
+
+O modo de interface **Demo legado** pode executar SQL durante
+`/api/generate-sql`, sem aguardar a aprovação separada. Para evitar
+execução implícita quando o modo tenant é ativado, o Produto recusa
+`tenant identity ready + interface Demo` **antes de gravar run ou
+chamar n8n**. O caminho legado com tenant desabilitado não muda.
+O bloqueio não é autorização de fallback ou cutover: para habilitar
+tenant em uma interface com execução, primeiro separar formalmente
+Generate, Repair/reapproval e Execute Approved no n8n oficial sob
+homologação própria. Não contornar o bloqueio por flag textual
+específica de cliente.
+
+Testes offline cobrem duas organizações no mesmo navegador, legado
+sem tenant, sessão sem organização, tentativas de informar ID via
+login, mudanças de sessão/organização e rejeição de execução automática
+antes de chamada externa. O CI de produção do Next.js verifica a
+compilação e esses contratos sem consumir LLM ou SQL financeira real.
