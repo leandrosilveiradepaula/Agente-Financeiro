@@ -472,6 +472,27 @@ describe("LangGraph shadow route behavior", () => {
     expect(routeMocks.dispatchLangGraphExecuteApprovedShadow).not.toHaveBeenCalled();
   });
 
+  it("never duplicates execute-approved Shadow dispatch when LangGraph becomes official via n8n", async () => {
+    resetRouteMocks();
+    routeMocks.isLangGraphShadowEnabled.mockReturnValue(true);
+    vi.stubEnv("LANGGRAPH_OFFICIAL_VIA_N8N", "true");
+    vi.stubGlobal("fetch", mockOfficialExecuteFetch());
+
+    const { POST } = await import("@/app/api/execute-watson/route");
+    const response = await POST(new Request("http://localhost/api/execute-watson", {
+      method: "POST",
+      body: JSON.stringify({
+        pergunta: "Execute a SQL aprovada",
+        sql: "SELECT * FROM dev_lakehouse.main_gold.resultado LIMIT 10",
+        agent_run_id: agentRunId
+      })
+    }));
+    expect(response.status).toBe(200);
+    expect(routeMocks.afterCallbacks).toHaveLength(0);
+    expect(routeMocks.dispatchLangGraphExecuteApprovedShadow).not.toHaveBeenCalled();
+    expect(routeMocks.recordShadowDispatchReceipt).not.toHaveBeenCalled();
+  });
+
   it("schedules execute-approved shadow with approved SQL unchanged", async () => {
     const { approvedSql } = await readExecuteResponse(true);
 
