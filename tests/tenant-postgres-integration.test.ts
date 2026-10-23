@@ -160,6 +160,44 @@ rehearsal("real PostgreSQL tenant migration and application isolation", () => {
     ).rejects.toMatchObject({ code: "23505" });
   });
 
+  it("persists separate Shadow delivery receipts atomically under the trusted tenant", async () => {
+    // These receipts prove delivery only, not LangGraph generation, evidence
+    // persistence, valid SQL or financial equivalence.
+    await runsService.recordShadowDispatchReceipt({
+      id: RUN_A, event: "generate", requestId: "synthetic-g1-request",
+      status: "sent", httpStatus: 202, organizationId: ORG_A
+    });
+    await runsService.recordShadowDispatchReceipt({
+      id: RUN_A, event: "execute_approved", requestId: "synthetic-g1-exec",
+      status: "timeout", organizationId: ORG_A
+    });
+    const persisted = await db.query<{
+      metadata: { shadow_dispatch: {
+        generate: {status:string;http_status:number;request_id:string},
+        execute_approved: {status:string;http_status:number|null}
+      } }
+    }>(
+      "SELECT metadata FROM public.ai_agent_runs WHERE id = $1::uuid", [RUN_A]
+    );
+    const receipts = persisted.rows[0].metadata.shadow_dispatch;
+    expect(receipts.generate).toMatchObject({
+      status: "sent",http_status:202,request_id:"synthetic-g1-request"
+    });
+    expect(receipts.execute_approved).toMatchObject({
+      status: "timeout",http_status:null
+    });
+    expect(receipts.generate).toHaveProperty("recorded_at");
+    expect(JSON.stringify(receipts)).not.toContain("sql_generated");
+    await expect(runsService.recordShadowDispatchReceipt({
+      id: RUN_B,event: "generate", requestId: "synthetic-foreign",
+      status: "sent",organizationId: ORG_A
+    })).rejects.toThrow("shadow_dispatch_receipt_not_persisted");
+    const foreign = await db.query<{metadata:Record<string,unknown>}>(
+      "SELECT metadata FROM public.ai_agent_runs WHERE id = $1::uuid", [RUN_B]
+    );
+    expect(foreign.rows[0].metadata).not.toHaveProperty("shadow_dispatch");
+  });
+
   it("preserves legacy session behavior when the feature is disabled", async () => {
     vi.stubEnv("AGENT_TENANT_IDENTITY_ENABLED", "false");
     const session = await sessionService.getSessionByToken(SESSION_A);
