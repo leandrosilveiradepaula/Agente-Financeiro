@@ -1,0 +1,75 @@
+name: Demo frontend production build offline
+
+on:
+  pull_request:
+    branches: [demo/grupo-horizonte]
+    paths:
+      - "app/**"
+      - "components/**"
+      - "lib/**"
+      - "tests/**"
+      - "migrations/**"
+      - "next.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig*.json"
+      - "tailwind.config.*"
+      - "postcss.config.*"
+      - ".github/workflows/demo-build-offline.yml"
+  push:
+    branches: [demo/grupo-horizonte]
+    paths:
+      - "app/**"
+      - "components/**"
+      - "lib/**"
+      - "tests/**"
+      - "migrations/**"
+      - "next.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig*.json"
+      - "tailwind.config.*"
+      - "postcss.config.*"
+      - ".github/workflows/demo-build-offline.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-build:
+    name: Next.js Turbopack build and browser XLSX contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Check TypeScript
+        run: npm run lint
+      - name: Full offline application regression
+        run: npm test
+      - name: Smoke test the published ExcelJS browser workbook (no remote API)
+        run: |
+          node --input-type=module - <<'JS'
+          import ExcelJS from "exceljs/dist/exceljs.min.js";
+          const Workbook = ExcelJS.Workbook ?? ExcelJS.default?.Workbook;
+          if (typeof Workbook !== "function") throw Error("ExcelJS browser workbook missing");
+          const workbook = new Workbook();
+          const worksheet = workbook.addWorksheet("Test");
+          worksheet.addRow(["field", "amount"]);
+          worksheet.addRow(["sample", 42]);
+          const buffer = await workbook.xlsx.writeBuffer();
+          if (!buffer || buffer.byteLength < 100) throw Error("Empty XLSX export");
+          console.log("ExcelJS browser workbook: PASS");
+          JS
+      - name: Verify actual Next.js Turbopack production build
+        run: npm run build
