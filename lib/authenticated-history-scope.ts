@@ -40,6 +40,6 @@ export function sessionHistoryIdentityChanged(
 ): boolean {
   if (!original || !current) return original !== current;
   return original.id !== current.id ||
-    original.tenantIdentityEnabled === true !== (current.tenantIdentityEnabled === true) ||
+    (original.tenantIdentityEnabled === true) !== (current.tenantIdentityEnabled === true) ||
     getAuthenticatedHistoryScope(original) !== getAuthenticatedHistoryScope(current);
 }
