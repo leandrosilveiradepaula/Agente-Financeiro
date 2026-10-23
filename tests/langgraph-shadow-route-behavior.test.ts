@@ -668,6 +668,7 @@ describe("LangGraph shadow route behavior", () => {
     const send = mockOfficialGenerateFetch();
     vi.stubGlobal("fetch", send);
     routeMocks.createAgentRun.mockClear();
+    routeMocks.updateAgentRunExecution.mockClear();
     const { POST } = await import("@/app/api/generate-sql/route");
     const response = await POST(new Request("http://localhost/api/generate-sql", {
       method: "POST",
