@@ -13,20 +13,20 @@ type Column = { table_name: string; column_name: string; type_name: string; null
 type Constraint = { table_name: string; constraint_type: string; column_names: string[]; target_table: string | null; target_schema: string | null; target_column_names: string[]; validated: boolean };
 type Index = { table_name: string; index_name: string; column_names: string[]; valid: boolean; ready: boolean; partial: boolean };
 
-const legacy: Column[] = [
+const legacy: Column[] = ([
   ["ai_agent_users","id","uuid"],["ai_agent_users","is_active","bool"],
   ["ai_agent_sessions","id","uuid"],["ai_agent_sessions","user_id","uuid"],
   ["ai_agent_sessions","session_token_hash","text"],["ai_agent_sessions","expires_at","timestamptz"],
   ["ai_agent_runs","id","uuid"],["ai_agent_runs","user_id","uuid"],
   ["ai_agent_runs","created_at","timestamptz"]
-].map(([table_name,column_name,type_name]) => ({table_name,column_name,type_name,nullable:false,has_default:false}));
+] as const).map(([table_name,column_name,type_name]) => ({table_name,column_name,type_name,nullable:false,has_default:false}));
 
-const tenant: Column[] = [
+const tenant: Column[] = ([
   ["ai_agent_organizations","id","uuid"],["ai_agent_organizations","is_active","bool"],
   ["ai_agent_user_organizations","user_id","uuid"],["ai_agent_user_organizations","organization_id","uuid"],
   ["ai_agent_user_organizations","is_active","bool"],["ai_agent_sessions","organization_id","uuid"],
   ["ai_agent_runs","organization_id","uuid"]
-].map(([table_name,column_name,type_name]) => ({table_name,column_name,type_name,nullable:true,has_default:false}));
+] as const).map(([table_name,column_name,type_name]) => ({table_name,column_name,type_name,nullable:true,has_default:false}));
 
 const pk = (table_name: string, column_names: string[]): Constraint =>
   ({table_name, constraint_type:"p",column_names,target_table:null,target_schema:null,target_column_names:[],validated:true});
@@ -40,11 +40,11 @@ const constraints:Constraint[] = [
   fk("ai_agent_sessions",["organization_id"],"ai_agent_organizations"),
   fk("ai_agent_runs",["organization_id"],"ai_agent_organizations")
 ];
-const indexes:Index[] = [
+const indexes:Index[] = ([
   ["ai_agent_user_organizations","idx_ai_agent_user_organizations_active_user",["user_id","organization_id"]],
   ["ai_agent_sessions","idx_ai_agent_sessions_organization",["organization_id"]],
   ["ai_agent_runs","idx_ai_agent_runs_organization_created_at",["organization_id","created_at"]]
-].map(([table_name,index_name,column_names]) => ({table_name,index_name,column_names,valid:true,ready:true,partial:true}));
+] as const).map(([table_name,index_name,column_names]) => ({table_name,index_name,column_names:[...column_names],valid:true,ready:true,partial:true}));
 
 describe("read-only live tenant schema readiness", () => {
   it("distinguishes an unmigrated legacy database", () => {
