@@ -178,3 +178,31 @@ sessão, perfil e ownership no BFF. Antes de retornar dados de transporte
 Esses checks são estruturais e multicliente; não usam regras financeiras,
 SQL, benchmark ou atalhos por cliente. Não constituem prova de conectividade
 real entre Produto e n8n, pois o novo relay permanece candidato inativo.
+
+
+## Recibos auditáveis de transporte por run (G1, sem ativação)
+
+Ao concluir uma resposta oficial bem-sucedida que agende Shadow em `after()`,
+o Produto registra em `ai_agent_runs.metadata.shadow_dispatch` um recibo
+**separado para cada evento**: `generate` e `execute_approved`.
+Cada recibo contém apenas `status` do transporte, código HTTP validado
+quando disponível, `request_id` emitido no servidor e instante UTC.
+A atualização JSONB é atômica e restrita à organização da run em modo tenant.
+Não guarda URL, headers, exceções, prompt, SQL ou corpo de resposta.
+
+No histórico administrativo, o painel **Transporte Shadow** exibe o último
+recibo de cada evento, seguido da visualização das evidências do LangGraph.
+`sent` com HTTP 202 significa **aceite do webhook n8n**; não prova
+execução subsequente do workflow, SQL gerada ou evidência persistida.
+`Sem recibo registrado` significa ausência de registro, não ausência
+comprovada de tentativa. Falhas de persistência do recibo geram apenas
+código de log sanitizado e não mudam a resposta oficial.
+
+O caminho de produção existente não é ativado por esta alteração:
+`LANGGRAPH_SHADOW_ENABLED` continua controlando o envio e
+`LANGGRAPH_ALLOW_REAL_SQL_EXECUTION=false` permanece obrigatório.
+Para fechar G1, comparar **a mesma run** em três fontes independentes:
+(1) recibo de envio Produto, (2) evidência persistida pelo n8n/LangGraph
+com IDs e versão, e (3) dados da run oficial. Um recibo isolado ou um
+HTTP 202 nunca bastam. Não rodar SQL real nem chamadas pagas por conta
+deste registro.
