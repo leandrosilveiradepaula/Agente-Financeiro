@@ -368,6 +368,73 @@ export async function createAgentRun(input: {
   return sanitizeAgentRun(result.rows[0]);
 }
 
+// G1 transport evidence is deliberately separate from LangGraph's persisted
+// semantic/SQL evidence. HTTP 202 means accepted by n8n, not SQL generated.
+// Both event slots are updated atomically in existing run metadata, without a
+// migration, business SQL, raw HTTP content, tokens or financial data.
+export type ShadowDispatchReceiptStatus =
+  | "sent"
+  | "http_error"
+  | "network_error"
+  | "timeout"
+  | "invalid_response"
+  | "configuration_error"
+  | "disabled"
+  | "unexpected_error";
+
+export async function recordShadowDispatchReceipt(input: {
+  id: string;
+  event: "generate" | "execute_approved";
+  requestId: string;
+  status: ShadowDispatchReceiptStatus;
+  httpStatus?: number | null;
+  organizationId?: string;
+}): Promise<void> {
+  const httpStatus =
+    typeof input.httpStatus === "number" &&
+    Number.isInteger(input.httpStatus) &&
+    input.httpStatus >= 100 &&
+    input.httpStatus <= 599
+      ? input.httpStatus
+      : null;
+
+  const receipt = {
+    status: input.status,
+    http_status: httpStatus,
+    request_id: input.requestId,
+    recorded_at: new Date().toISOString()
+  };
+
+  const result = await db.query(
+    `
+    UPDATE public.ai_agent_runs
+    SET
+      metadata = COALESCE(metadata, '{}'::jsonb) ||
+        jsonb_build_object(
+          'shadow_dispatch',
+          (CASE
+            WHEN jsonb_typeof(metadata -> 'shadow_dispatch') = 'object'
+              THEN metadata -> 'shadow_dispatch'
+            ELSE '{}'::jsonb
+          END) || jsonb_build_object($2::text, $3::jsonb)
+        ),
+      updated_at = now()
+    WHERE id = $1::uuid
+    ${input.organizationId ? "AND organization_id = $4::uuid" : ""}
+    `,
+    [
+      input.id,
+      input.event,
+      JSON.stringify(receipt),
+      ...(input.organizationId ? [input.organizationId] : [])
+    ]
+  );
+
+  if (result.rowCount !== 1) {
+    throw new Error("shadow_dispatch_receipt_not_persisted");
+  }
+}
+
 export async function updateAgentRunGeneratedSql(input: {
   id: string;
   detectedIntent?: string | null;
