@@ -29,6 +29,7 @@ type IndexFact = {
   valid: boolean;
   ready: boolean;
   partial: boolean;
+  predicate_sql: string | null;
 };
 
 type ExpectedColumn = readonly [string, string, string];
@@ -118,6 +119,7 @@ const INDEXES_SQL = `
          i.indisvalid AS valid,
          i.indisready AS ready,
          i.indpred IS NOT NULL AS partial,
+         pg_catalog.pg_get_expr(i.indpred, i.indrelid)::text AS predicate_sql,
          ARRAY(
            SELECT a.attname::text
            FROM unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord)
@@ -132,6 +134,22 @@ const INDEXES_SQL = `
   JOIN pg_catalog.pg_class ix ON ix.oid = i.indexrelid
   WHERE n.nspname = 'public' AND t.relname = ANY($1::text[])
 `;
+
+// Index names/columns alone do not prove a tenant filter; the predicate must
+// actually match the reviewed additive DDL. No financial or client SQL here.
+function expectedIndexPredicate(table: string, name: string, predicate: string | null): boolean {
+  const normalized = predicate?.replace(/[()"]/g, "").replace(/\\s+/g, " ").trim().toLowerCase();
+  if (table === "ai_agent_user_organizations" && name === "idx_ai_agent_user_organizations_active_user") {
+    return normalized === "is_active = true" || normalized === "is_active";
+  }
+  if (table === "ai_agent_sessions" && name === "idx_ai_agent_sessions_organization") {
+    return normalized === "organization_id is not null";
+  }
+  if (table === "ai_agent_runs" && name === "idx_ai_agent_runs_organization_created_at") {
+    return normalized === "organization_id is not null";
+  }
+  return false;
+}
 
 export type TenantSchemaReadiness = {
   status: "legacy_incompatible" | "migration_pending" | "migration_incomplete" |
@@ -204,6 +222,7 @@ export function assessTenantSchemaCatalog(
       actual.table_name === table && actual.index_name === index &&
       actual.valid === true && actual.ready === true &&
       actual.partial === true &&
+      expectedIndexPredicate(table, index, actual.predicate_sql) &&
       actual.column_names.join(",") === expectedColumns.join(","))
   );
 
