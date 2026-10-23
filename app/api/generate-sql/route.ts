@@ -39,6 +39,10 @@ import {
 import { AGENT_VERSION, type GenerateSqlResponse } from "@/lib/types";
 import { isShadowPhaseOneProviderMatch } from "@/lib/shadow-phase-gate";
 import { normalizeWatsonResult } from "@/lib/watson-result-normalization";
+import {
+  getSessionTenantIdentity,
+  getTenantOfficialExecutionScope
+} from "@/lib/tenant-identity";
 
 export const runtime = "nodejs";
 
@@ -208,6 +212,7 @@ async function buildLlmPersistence(
     perguntaNormalizada: string | null;
     detectedIntent: string | null;
     sqlGenerated: string | null;
+    organizationId?: string;
   }
 ) {
   const usage = extractLlmUsageFromResponse(raw);
@@ -244,7 +249,9 @@ async function buildLlmPersistence(
     resolvedCacheSourceRunId &&
     (savedPromptTokens === null || savedCompletionTokens === null || savedTotalTokens === null)
   ) {
-    const sourceRun = await getAgentRunById(resolvedCacheSourceRunId);
+    const sourceRun = comparable.organizationId
+      ? await getAgentRunById(resolvedCacheSourceRunId, comparable.organizationId)
+      : await getAgentRunById(resolvedCacheSourceRunId);
     savedPromptTokens = savedPromptTokens ?? sourceRun?.llm_prompt_tokens ?? null;
     savedCompletionTokens = savedCompletionTokens ?? sourceRun?.llm_completion_tokens ?? null;
     savedTotalTokens = savedTotalTokens ?? sourceRun?.llm_total_tokens ?? null;
@@ -259,7 +266,8 @@ async function buildLlmPersistence(
       detectedIntent: comparable.detectedIntent,
       currentRunId: comparable.currentRunId,
       currentCreatedAt: comparable.currentCreatedAt,
-      sqlGenerated: comparable.sqlGenerated
+      sqlGenerated: comparable.sqlGenerated,
+      organizationId: comparable.organizationId
     });
 
     if (comparableRun) {
@@ -367,6 +375,16 @@ export async function POST(request: Request) {
       )
     );
   }
+  const tenant = getSessionTenantIdentity(session);
+  if (tenant.status === "required") {
+    return buildErrorResponse("Identidade organizacional não configurada para esta sessão.", 403);
+  }
+  if (tenant.status === "ready" &&
+      getTenantOfficialExecutionScope(session).status !== "ready") {
+    // An organization-aware history does not make the shared official
+    // n8n datasource safe. No outbound n8n/LLM call in this case.
+    return buildErrorResponse("Destino financeiro da organização não homologado.", 503);
+  }
 
   const internalWebhookToken = process.env.N8N_INTERNAL_WEBHOOK_TOKEN || "";
 
@@ -416,7 +434,10 @@ export async function POST(request: Request) {
   const requestedRunId =
     isRecord(body) ? asString(body.run_id).trim() || asString(body.agent_run_id).trim() : "";
   const requestOptions = isRecord(body) && isRecord(body.options) ? body.options : {};
-  const useSqlCache = asBoolean(requestOptions.use_sql_cache) ?? false;
+  // Legacy n8n SQL cache has no attested tenant/semantic-version namespace.
+  // A tenant-scoped request must neither request nor accept a shared hit.
+  const useSqlCache = tenant.status === "disabled" &&
+    (asBoolean(requestOptions.use_sql_cache) ?? false);
   const registryEnvironment =
     process.env.LLM_REGISTRY_ENVIRONMENT || getLlmRegistryEnvironment();
   let requestedLlmSelection: ReturnType<typeof parseLlmSelection> = null;
@@ -496,7 +517,8 @@ export async function POST(request: Request) {
   const requestMetadata = await getRequestMetadata();
   const agentRun = await createAgentRun({
     requestId,
-    runId: requestedRunId || undefined,
+    // Tenant-scoped correlation is always BFF-generated, never client-chosen.
+    runId: tenant.status === "ready" ? undefined : requestedRunId || undefined,
     session,
     pergunta,
     metadata: requestMetadata,
@@ -671,6 +693,23 @@ export async function POST(request: Request) {
             source: "disabled_by_user"
           });
     const sqlCacheHit = detectSqlCacheHit(raw, baseCache);
+    if (tenant.status === "ready" && sqlCacheHit) {
+      // Fail closed even when the legacy backend disregards use_sql_cache=false.
+      // Never persist or return SQL obtained from an unpartitioned cache.
+      await updateAgentRunGeneratedSql({
+        id: agentRun.id,
+        validationStatus: "erro",
+        executionStatus: "failed",
+        executionError: "tenant_sql_cache_not_isolated",
+        metadata: { n8n_status_code: webhookResponse.status }
+      });
+      return buildErrorResponse(
+        "Cache SQL sem isolamento organizacional comprovado.",
+        502,
+        null,
+        { agentRunId: agentRun.id, runId: agentRun.run_id }
+      );
+    }
     const normalizedWithCache: GenerateSqlResponse = {
       ...normalized,
       cache: {
@@ -683,7 +722,10 @@ export async function POST(request: Request) {
       currentCreatedAt: agentRun.created_at,
       perguntaNormalizada: agentRun.pergunta_normalizada,
       detectedIntent: normalizedWithCache.detected_intent,
-      sqlGenerated: normalizedWithCache.sql
+      sqlGenerated: normalizedWithCache.sql,
+      organizationId: tenant.status === "ready"
+        ? tenant.organizationId
+        : undefined
     });
 
     if (!webhookResponse.ok) {
@@ -932,8 +974,11 @@ export async function POST(request: Request) {
     // Never silently fall back to Gemini when an explicit Shadow model cannot be resolved.
     if (parallelShadowEnabled && shadowLlmSelection !== null) {
       const principal = buildLangGraphShadowPrincipal(session);
-
-      after(async () => {
+      if (!principal) {
+        logger.warn("generate_sql.langgraph_shadow_tenant_identity_missing", {
+          requestId, agentRunId: agentRun.id
+        });
+      } else after(async () => {
         try {
           const shadowResult = await dispatchLangGraphGenerateShadow({
             agentRunId: agentRun.id,

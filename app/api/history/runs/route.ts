@@ -4,6 +4,7 @@ import { getProfilePolicy } from "@/lib/profile-policy";
 import { requireAgentSession } from "@/lib/server-auth";
 import { logger } from "@/lib/server-logger";
 import { AGENT_VERSION, type QueryHistoryItem } from "@/lib/types";
+import { getSessionTenantIdentity } from "@/lib/tenant-identity";
 
 export const runtime = "nodejs";
 
@@ -38,6 +39,10 @@ export async function GET() {
       NextResponse.json({ success: false, error: "unauthorized" }, { status: 401 })
     );
   }
+  const tenant = getSessionTenantIdentity(session);
+  if (tenant.status === "required") {
+    return NextResponse.json({ success: false, error: "tenant_identity_required" }, { status: 403 });
+  }
 
   const policy = await getProfilePolicy(session.userProfile);
 
@@ -48,10 +53,7 @@ export async function GET() {
     );
   }
 
-  const canViewOwnRuns =
-    policy.can_view_own_runs ||
-    policy.can_view_all_runs ||
-    ["admin", "auditoria"].includes(session.userProfile);
+  const canViewOwnRuns = policy.can_view_own_runs || policy.can_view_all_runs;
 
   if (!canViewOwnRuns) {
     logger.warn("query_history.list_forbidden", {
@@ -69,6 +71,7 @@ export async function GET() {
     const result = await listAgentRuns({
       viewerUserId: session.userId,
       viewerEmail: session.email,
+      organizationId: tenant.status === "ready" ? tenant.organizationId : undefined,
       limit: 10,
       offset: 0
     });

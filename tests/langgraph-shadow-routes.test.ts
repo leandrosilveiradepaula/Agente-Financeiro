@@ -6,11 +6,11 @@ const root = process.cwd();
 const generateRoute = readFileSync(
   join(root, "app/api/generate-sql/route.ts"),
   "utf8"
-);
+).replace(/\r\n/g, "\n");
 const executeRoute = readFileSync(
   join(root, "app/api/execute-watson/route.ts"),
   "utf8"
-);
+).replace(/\r\n/g, "\n");
 
 function sliceBetween(source: string, start: string, end: string) {
   const startIndex = source.indexOf(start);

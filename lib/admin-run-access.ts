@@ -1,6 +1,7 @@
 import { getAgentRunById, type SanitizedAgentRun } from "@/lib/agent-runs";
 import type { AgentSession } from "@/lib/auth/auth-types";
 import { getProfilePolicy, type SanitizedProfilePolicy } from "@/lib/profile-policy";
+import { getSessionTenantIdentity } from "@/lib/tenant-identity";
 
 export type AdminRunReadAccessResult =
   | {
@@ -12,7 +13,7 @@ export type AdminRunReadAccessResult =
   | {
       allowed: false;
       status: 403 | 404;
-      error: "profile_policy_not_found" | "forbidden" | "run_not_found";
+      error: "profile_policy_not_found" | "forbidden" | "run_not_found" | "tenant_identity_required";
       canViewAllRuns?: boolean;
       canViewOwnRuns?: boolean;
     };
@@ -21,6 +22,10 @@ export async function authorizeAdminRunReadAccess(
   runId: string,
   session: AgentSession
 ): Promise<AdminRunReadAccessResult> {
+  const tenant = getSessionTenantIdentity(session);
+  if (tenant.status === "required") {
+    return { allowed: false, status: 403, error: "tenant_identity_required" };
+  }
   const policy = await getProfilePolicy(session.userProfile);
 
   if (!policy) {
@@ -31,8 +36,7 @@ export async function authorizeAdminRunReadAccess(
     };
   }
 
-  const canViewAllRuns =
-    policy.can_view_all_runs || ["admin", "auditoria"].includes(session.userProfile);
+  const canViewAllRuns = policy.can_view_all_runs;
   const canViewOwnRuns = policy.can_view_own_runs || canViewAllRuns;
 
   if (!canViewOwnRuns) {
@@ -45,7 +49,11 @@ export async function authorizeAdminRunReadAccess(
     };
   }
 
-  const run = await getAgentRunById(runId);
+  // A tenant-enabled lookup is filtered in SQL. Historical NULL runs are not
+  // assigned to a tenant and consequently cannot be read through this path.
+  const run = tenant.status === "ready"
+    ? await getAgentRunById(runId, tenant.organizationId)
+    : await getAgentRunById(runId);
 
   if (!run) {
     return {

@@ -4,7 +4,8 @@ import { NextResponse } from "next/server";
 import {
   AGENT_SESSION_MAX_AGE_SECONDS,
   getSessionByToken,
-  revokeSessionByToken
+  revokeSessionByToken,
+  selectSessionOrganizationByToken
 } from "@/lib/auth/session-service";
 import type { AgentSession, RequestMetadata } from "@/lib/auth/auth-types";
 
@@ -96,6 +97,12 @@ export async function revokeCurrentSession() {
   const token = cookieStore.get(AGENT_SESSION_COOKIE)?.value;
 
   await revokeSessionByToken(token);
+}
+
+export async function selectCurrentSessionOrganization(organizationId: string) {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(AGENT_SESSION_COOKIE)?.value;
+  return selectSessionOrganizationByToken(token, organizationId);
 }
 
 export async function validateAgentSession() {

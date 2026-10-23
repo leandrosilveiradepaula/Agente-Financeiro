@@ -20,6 +20,10 @@ import {
 } from "@/lib/langgraph-shadow-client";
 import type { ExecuteWatsonResponse } from "@/lib/types";
 import { normalizeWatsonResult } from "@/lib/watson-result-normalization";
+import {
+  getSessionTenantIdentity,
+  getTenantOfficialExecutionScope
+} from "@/lib/tenant-identity";
 
 export const runtime = "nodejs";
 
@@ -75,6 +79,14 @@ export async function POST(request: Request) {
       )
     );
   }
+  const tenant = getSessionTenantIdentity(session);
+  if (tenant.status === "required") {
+    return errorResponse("Identidade organizacional não configurada para esta sessão.", 403);
+  }
+  if (tenant.status === "ready" &&
+      getTenantOfficialExecutionScope(session).status !== "ready") {
+    return errorResponse("Destino financeiro da organização não homologado.", 503);
+  }
 
   let body: unknown;
 
@@ -92,12 +104,21 @@ export async function POST(request: Request) {
     asString(record.agent_run_id).trim() || asString(record.run_id).trim();
   const agentRunId = isUuid(requestedRunId) ? requestedRunId : null;
 
+  if (tenant.status === "ready" && !agentRunId) {
+    // Execution without a tenant-scoped persisted Generate/Approval record
+    // would allow a user-supplied SQL to bypass run ownership.
+    return errorResponse("Execução sem histórico organizacional autorizado.", 403);
+  }
+
   if (!pergunta) {
     logger.warn("execute_watson.empty_question", { requestId });
     return errorResponse("Informe a pergunta original para executar no Watson.", 400);
   }
 
-  const existingRun = agentRunId ? await getAgentRunById(agentRunId) : null;
+  const existingRun = agentRunId ? await getAgentRunById(
+    agentRunId,
+    tenant.status === "ready" ? tenant.organizationId : undefined
+  ) : null;
 
   if (agentRunId && !existingRun) {
     return errorResponse("Histórico de execução não encontrado.", 404);
@@ -112,6 +133,13 @@ export async function POST(request: Request) {
   }
 
   const sql = receivedSql || existingRun?.sql_generated?.trim() || "";
+
+  if (tenant.status === "ready" && receivedSql &&
+      receivedSql !== existingRun?.sql_generated?.trim()) {
+    // A modified SQL must return through an explicit repair/reapproval gate,
+    // rather than being silently executed as an old authorized run.
+    return errorResponse("SQL modificada exige nova validação e aprovação.", 409);
+  }
 
   if (!sql) {
     logger.warn("execute_watson.empty_sql", { requestId });
@@ -367,8 +395,11 @@ export async function POST(request: Request) {
 
     if (agentRunId && isLangGraphShadowEnabled()) {
       const principal = buildLangGraphShadowPrincipal(session);
-
-      after(async () => {
+      if (!principal) {
+        logger.warn("execute_watson.langgraph_shadow_tenant_identity_missing", {
+          requestId, agentRunId
+        });
+      } else after(async () => {
         try {
           const shadowResult = await dispatchLangGraphExecuteApprovedShadow({
             agentRunId,
