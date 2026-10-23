@@ -63,6 +63,7 @@ describe("post-generation SQL comparison transport", () => {
     const [endpoint, init] = fetchImpl.mock.calls[0];
     expect(endpoint).toBe("http://127.0.0.1:8000/v1/internal/sql-agent/compare-shadow-sql");
     expect(init.headers.Authorization).toBe("Bearer test-s2s-token");
+    expect(init.redirect).toBe("error");
     expect(init.headers.Cookie).toBeUndefined();
     const body = JSON.parse(init.body);
     expect(body).toMatchObject({
@@ -75,6 +76,62 @@ describe("post-generation SQL comparison transport", () => {
     expect(JSON.stringify(body)).not.toContain("test-s2s-token");
     expect(JSON.stringify(result)).not.toContain("SELECT");
     expect(JSON.stringify(result)).not.toContain("example_records");
+  });
+
+  it("preserves authorized organization binding without changing legacy mode", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(response({
+      contract_version: "1", agent_run_id: input.agentRunId,
+      status: "success", metadata: {comparison: {
+        ...safeComparison, tenant_identity_attested: true
+      }}
+    }));
+    const organizationId = "246b41c5-2d93-4a1e-9f66-7de73285491a";
+    const result = await compareLangGraphShadowSql(
+      {...input, organizationId}, {env, fetchImpl}
+    );
+    expect(result.status).toBe("ok");
+    const scoped = JSON.parse(fetchImpl.mock.calls[0][1].body);
+    expect(scoped.principal).toEqual({
+      id: input.originalUserId, organization_id: organizationId
+    });
+    expect(scoped).not.toHaveProperty("benchmark");
+    expect(scoped).not.toHaveProperty("expected_sql");
+    expect(JSON.stringify(result)).not.toContain(organizationId);
+
+    await compareLangGraphShadowSql(input, {env, fetchImpl});
+    const legacy = JSON.parse(fetchImpl.mock.calls[1][1].body);
+    expect(legacy.principal).toEqual({id: input.originalUserId});
+  });
+
+  it("refuses deployed insecure comparison URLs before transmitting credentials", async () => {
+    const fetchImpl = vi.fn();
+    for (const base of [
+      "http://public.example.invalid", "https://localhost:8000",
+      "https://127.0.0.1:8000", "https://10.1.1.1:8000",
+      "https://public.example.invalid/other",
+      "https://public.example.invalid/?unsafe=1",
+      "https://user:pass@public.example.invalid"
+    ]) {
+      const result = await compareLangGraphShadowSql(input, {
+        env: {...env, VERCEL: "1", LANGGRAPH_INTERNAL_BASE_URL: base},
+        fetchImpl
+      });
+      expect(result.status).toBe("configuration_error");
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+    const trusted = vi.fn().mockResolvedValue(response({
+      contract_version: "1", agent_run_id: input.agentRunId,
+      status: "success", metadata: {comparison: safeComparison}
+    }));
+    const valid = await compareLangGraphShadowSql(input, {
+      env: {...env, VERCEL: "1",
+        LANGGRAPH_INTERNAL_BASE_URL: "https://trusted.example.invalid"},
+      fetchImpl: trusted
+    });
+    expect(valid.status).toBe("ok");
+    expect(trusted.mock.calls[0][0])
+      .toBe("https://trusted.example.invalid/v1/internal/sql-agent/compare-shadow-sql");
+    expect(trusted.mock.calls[0][1].redirect).toBe("error");
   });
 
   it("allowlists response fields without exposing SQL or sensitive values", async () => {

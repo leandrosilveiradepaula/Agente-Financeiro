@@ -9,6 +9,7 @@ const routeMocks = vi.hoisted(() => ({
   markAgentRunBlocked: vi.fn(),
   updateAgentRunGeneratedSql: vi.fn(),
   updateAgentRunExecution: vi.fn(),
+  recordShadowDispatchReceipt: vi.fn(),
   findLatestComparableLlmRunForCacheSavings: vi.fn(),
   enforceCanGenerateSql: vi.fn(),
   enforceCanExecuteSql: vi.fn(),
@@ -45,6 +46,7 @@ vi.mock("@/lib/agent-runs", () => ({
   markAgentRunBlocked: routeMocks.markAgentRunBlocked,
   updateAgentRunGeneratedSql: routeMocks.updateAgentRunGeneratedSql,
   updateAgentRunExecution: routeMocks.updateAgentRunExecution,
+  recordShadowDispatchReceipt: routeMocks.recordShadowDispatchReceipt,
   findLatestComparableLlmRunForCacheSavings:
     routeMocks.findLatestComparableLlmRunForCacheSavings
 }));
@@ -116,6 +118,8 @@ function resetRouteMocks() {
   routeMocks.markAgentRunBlocked.mockResolvedValue(undefined);
   routeMocks.updateAgentRunGeneratedSql.mockResolvedValue(undefined);
   routeMocks.updateAgentRunExecution.mockResolvedValue(undefined);
+  routeMocks.recordShadowDispatchReceipt.mockReset();
+  routeMocks.recordShadowDispatchReceipt.mockResolvedValue(undefined);
   routeMocks.findLatestComparableLlmRunForCacheSavings.mockResolvedValue(null);
   routeMocks.enforceCanGenerateSql.mockResolvedValue({
     allowed: true,
@@ -292,6 +296,14 @@ describe("LangGraph shadow route behavior", () => {
 
     await routeMocks.afterCallbacks[0]();
 
+    expect(routeMocks.recordShadowDispatchReceipt).toHaveBeenCalledWith({
+      id: agentRunId,
+      event: "generate",
+      requestId: expect.any(String),
+      status: "sent",
+      httpStatus: undefined,
+      organizationId: undefined
+    });
     expect(routeMocks.dispatchLangGraphGenerateShadow).toHaveBeenCalledWith({
       agentRunId,
       question: "Qual foi o resultado por marca?",
@@ -395,6 +407,9 @@ describe("LangGraph shadow route behavior", () => {
     await expect(routeMocks.afterCallbacks[0]()).resolves.toBeUndefined();
 
     expect(enabled.body).toEqual(disabled.body);
+    expect(routeMocks.recordShadowDispatchReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({ id: agentRunId, event: "generate", status: "unexpected_error" })
+    );
     expect(routeMocks.loggerWarn).toHaveBeenCalledWith(
       "generate_sql.langgraph_shadow_unexpected_error",
       {
@@ -425,6 +440,20 @@ describe("LangGraph shadow route behavior", () => {
     });
   });
 
+  it("preserves the official response when a Shadow audit receipt cannot be written", async () => {
+    const { body } = await readGenerateResponse(true);
+    routeMocks.recordShadowDispatchReceipt.mockRejectedValueOnce(
+      new Error("postgres://secret@internal / raw financial SQL")
+    );
+    await expect(routeMocks.afterCallbacks[0]()).resolves.toBeUndefined();
+    expect(body).toMatchObject({ success: true, agent_run_id: agentRunId });
+    expect(routeMocks.loggerWarn).toHaveBeenCalledWith(
+      "generate_sql.shadow_receipt_persistence_failed",
+      { requestId: expect.any(String), agentRunId }
+    );
+    expect(JSON.stringify(routeMocks.loggerWarn.mock.calls)).not.toContain("secret@internal");
+  });
+
   it("keeps execute n8n/Watson flow and official response unchanged when shadow is disabled", async () => {
     const { response, body } = await readExecuteResponse(false);
 
@@ -443,6 +472,27 @@ describe("LangGraph shadow route behavior", () => {
     expect(routeMocks.dispatchLangGraphExecuteApprovedShadow).not.toHaveBeenCalled();
   });
 
+  it("never duplicates execute-approved Shadow dispatch when LangGraph becomes official via n8n", async () => {
+    resetRouteMocks();
+    routeMocks.isLangGraphShadowEnabled.mockReturnValue(true);
+    vi.stubEnv("LANGGRAPH_OFFICIAL_VIA_N8N", "true");
+    vi.stubGlobal("fetch", mockOfficialExecuteFetch());
+
+    const { POST } = await import("@/app/api/execute-watson/route");
+    const response = await POST(new Request("http://localhost/api/execute-watson", {
+      method: "POST",
+      body: JSON.stringify({
+        pergunta: "Execute a SQL aprovada",
+        sql: "SELECT * FROM dev_lakehouse.main_gold.resultado LIMIT 10",
+        agent_run_id: agentRunId
+      })
+    }));
+    expect(response.status).toBe(200);
+    expect(routeMocks.afterCallbacks).toHaveLength(0);
+    expect(routeMocks.dispatchLangGraphExecuteApprovedShadow).not.toHaveBeenCalled();
+    expect(routeMocks.recordShadowDispatchReceipt).not.toHaveBeenCalled();
+  });
+
   it("schedules execute-approved shadow with approved SQL unchanged", async () => {
     const { approvedSql } = await readExecuteResponse(true);
 
@@ -450,6 +500,14 @@ describe("LangGraph shadow route behavior", () => {
 
     await routeMocks.afterCallbacks[0]();
 
+    expect(routeMocks.recordShadowDispatchReceipt).toHaveBeenCalledWith({
+      id: agentRunId,
+      event: "execute_approved",
+      requestId: expect.any(String),
+      status: "sent",
+      httpStatus: undefined,
+      organizationId: undefined
+    });
     expect(routeMocks.dispatchLangGraphExecuteApprovedShadow).toHaveBeenCalledWith({
       agentRunId,
       approvedSql,
@@ -481,6 +539,9 @@ describe("LangGraph shadow route behavior", () => {
     await expect(routeMocks.afterCallbacks[0]()).resolves.toBeUndefined();
 
     expect(enabled.body).toEqual(disabled.body);
+    expect(routeMocks.recordShadowDispatchReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({ id: agentRunId, event: "execute_approved", status: "unexpected_error" })
+    );
     expect(routeMocks.loggerWarn).toHaveBeenCalledWith(
       "execute_watson.langgraph_shadow_unexpected_error",
       {

@@ -1,4 +1,5 @@
 import "server-only";
+import { isLocalOrPrivateHostname } from "@/lib/langgraph-shadow-client";
 
 // Read-only post-generation comparison. Official SQL stays between authenticated
 // backends and is never returned by this client to the browser.
@@ -74,9 +75,18 @@ export async function compareLangGraphShadowSql(
     if (!token) throw Error("S2S token unavailable");
     const base = env.LANGGRAPH_INTERNAL_BASE_URL?.trim() || "";
     const url = new URL(base);
-    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password
-        || url.search || url.hash) throw Error("Invalid internal URL");
-    endpoint = url.toString().replace(/\/+$/, "") + COMPARE_PATH;
+    if (!["http:", "https:"].includes(url.protocol) || url.username ||
+        url.password || url.search || url.hash || !url.hostname ||
+        (url.pathname !== "/" && url.pathname !== "")) {
+      throw Error("Invalid internal URL");
+    }
+    // Do not send a Bearer token over plaintext or to a private
+    // destination from a Vercel deployment.
+    if (env.VERCEL === "1" &&
+        (url.protocol !== "https:" || isLocalOrPrivateHostname(url.hostname))) {
+      throw Error("Unsafe deployed comparison target");
+    }
+    endpoint = url.origin + COMPARE_PATH;
   } catch {
     return { status: "configuration_error" };
   }
@@ -99,7 +109,7 @@ export async function compareLangGraphShadowSql(
   const timeout = setTimeout(() => controller.abort(), 5000);
   try {
     const response = await (options.fetchImpl ?? fetch)(endpoint, {
-      method: "POST", cache: "no-store",
+      method: "POST", cache: "no-store", redirect: "error",
       headers: {
         "Content-Type": "application/json",
         Authorization: "Bearer " + token

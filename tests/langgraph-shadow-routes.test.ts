@@ -70,7 +70,7 @@ describe("LangGraph shadow route integration", () => {
     const responsePayloadBlock = sliceBetween(
       executeRoute,
       "const responsePayload =",
-      "if (agentRunId && isLangGraphShadowEnabled())"
+      "if (agentRunId && isLangGraphShadowEnabled()"
     );
 
     expect(executeRoute).toContain("const responsePayload =");

@@ -3,7 +3,9 @@ import {
   createAgentRun,
   getAgentRunById,
   markAgentRunBlocked,
-  updateAgentRunExecution
+  updateAgentRunExecution,
+  recordShadowDispatchReceipt,
+  type ShadowDispatchReceiptStatus
 } from "@/lib/agent-runs";
 import { getN8nExecuteWatsonWebhookEndpoint } from "@/lib/n8n-endpoint";
 import {
@@ -393,20 +395,26 @@ export async function POST(request: Request) {
         : {})
     };
 
-    if (agentRunId && isLangGraphShadowEnabled()) {
+    // The parallel witness must not replay an event already official in n8n.
+    if (agentRunId && isLangGraphShadowEnabled() &&
+        process.env.LANGGRAPH_OFFICIAL_VIA_N8N?.trim().toLowerCase() !== "true") {
       const principal = buildLangGraphShadowPrincipal(session);
       if (!principal) {
         logger.warn("execute_watson.langgraph_shadow_tenant_identity_missing", {
           requestId, agentRunId
         });
       } else after(async () => {
+        let receiptStatus: ShadowDispatchReceiptStatus = "unexpected_error";
+        let receiptHttpStatus: number | undefined;
         try {
           const shadowResult = await dispatchLangGraphExecuteApprovedShadow({
             agentRunId,
             approvedSql: sql,
             principal,
-            requestId,
+            requestId
           });
+          receiptStatus = shadowResult.status;
+          receiptHttpStatus = shadowResult.httpStatus;
 
           if (shadowResult.status !== "sent" && shadowResult.status !== "disabled") {
             try {
@@ -418,7 +426,7 @@ export async function POST(request: Request) {
                 errorName: shadowResult.errorName
               });
             } catch {
-              // Preserve the official response path even if post-response logging fails.
+              // A post-response logging failure cannot affect official SQL execution.
             }
           }
         } catch {
@@ -429,7 +437,27 @@ export async function POST(request: Request) {
               errorName: "UnexpectedShadowError"
             });
           } catch {
-            // Preserve the official response path even if post-response logging fails.
+            // Never log arbitrary provider exception contents.
+          }
+        } finally {
+          try {
+            await recordShadowDispatchReceipt({
+              id: agentRunId,
+              event: "execute_approved",
+              requestId,
+              status: receiptStatus,
+              httpStatus: receiptHttpStatus,
+              organizationId: tenant.status === "ready" ? tenant.organizationId : undefined
+            });
+          } catch {
+            try {
+              logger.warn("execute_watson.shadow_receipt_persistence_failed", {
+                requestId,
+                agentRunId
+              });
+            } catch {
+              // Receipt persistence must never affect the official response.
+            }
           }
         }
       });
