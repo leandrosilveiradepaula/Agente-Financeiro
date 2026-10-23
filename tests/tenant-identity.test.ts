@@ -67,3 +67,43 @@ describe("persisted tenant identity", () => {
     expect(mocks.getAgentRunById).not.toHaveBeenCalledWith("run-in-b", organizationB);
   });
 });
+
+describe("official financial datasource tenant gate", () => {
+  it("preserves the disabled legacy environment without needing new schema or bindings", async () => {
+    const { getTenantOfficialExecutionScope } = await import("@/lib/tenant-identity");
+    expect(getTenantOfficialExecutionScope(session, {
+      AGENT_TENANT_IDENTITY_ENABLED: "false"
+    })).toEqual({ status: "legacy" });
+  });
+
+  it("fails closed until an explicit official financial deployment scope is configured", async () => {
+    const { getTenantOfficialExecutionScope } = await import("@/lib/tenant-identity");
+    const enabled = { AGENT_TENANT_IDENTITY_ENABLED: "true" };
+    expect(getTenantOfficialExecutionScope(session, enabled))
+      .toEqual({ status: "official_scope_unconfigured" });
+    expect(getTenantOfficialExecutionScope(session, {
+      ...enabled, AGENT_TENANT_OFFICIAL_ORGANIZATION_ID: "not-a-uuid"
+    })).toEqual({ status: "official_scope_unconfigured" });
+    expect(getTenantOfficialExecutionScope({ ...session, organizationId: undefined }, {
+      ...enabled, AGENT_TENANT_OFFICIAL_ORGANIZATION_ID: organizationA
+    })).toEqual({ status: "tenant_identity_required" });
+  });
+
+  it("denies other organizations even when both memberships exist in the Product", async () => {
+    const { getTenantOfficialExecutionScope } = await import("@/lib/tenant-identity");
+    const scopedEnvironment = {
+      AGENT_TENANT_IDENTITY_ENABLED: "true",
+      AGENT_TENANT_OFFICIAL_ORGANIZATION_ID: organizationA
+    };
+    expect(getTenantOfficialExecutionScope(session, scopedEnvironment))
+      .toEqual({ status: "ready", organizationId: organizationA });
+    expect(getTenantOfficialExecutionScope({
+      ...session, organizationId: organizationB
+    }, scopedEnvironment)).toEqual({ status: "official_scope_mismatch" });
+    // Diagnostic signals never disclose a UUID or membership.
+    const { inspectTenantIdentityConfiguration } = await import("@/lib/tenant-identity");
+    const report = inspectTenantIdentityConfiguration(scopedEnvironment);
+    expect(report.official_execution_scope_configured).toBe(true);
+    expect(JSON.stringify(report)).not.toContain(organizationA);
+  });
+});
