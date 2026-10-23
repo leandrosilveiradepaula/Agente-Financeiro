@@ -1,0 +1,86 @@
+name: Demo tenant migration rehearsal (isolated PostgreSQL)
+
+on:
+  pull_request:
+    branches: [demo/grupo-horizonte]
+    paths:
+      - "migrations/**"
+      - "lib/auth/session-service.ts"
+      - "lib/agent-runs.ts"
+      - "lib/tenant-identity.ts"
+      - "tests/tenant-postgres-integration.test.ts"
+      - "scripts/validation/seed_tenant_legacy_fixture.sql"
+      - ".github/workflows/demo-tenant-postgres-rehearsal.yml"
+  push:
+    branches: [demo/grupo-horizonte]
+    paths:
+      - "migrations/**"
+      - "lib/auth/session-service.ts"
+      - "lib/agent-runs.ts"
+      - "lib/tenant-identity.ts"
+      - "tests/tenant-postgres-integration.test.ts"
+      - "scripts/validation/seed_tenant_legacy_fixture.sql"
+      - ".github/workflows/demo-tenant-postgres-rehearsal.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  tenant-postgres:
+    name: Additive migration and actual tenant SQL on disposable PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tenant_ci
+          POSTGRES_PASSWORD: local-ci-fixture-only
+          POSTGRES_DB: tenant_ci_fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tenant_ci -d tenant_ci_fixture"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      CI: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: tenant_ci
+      PGPASSWORD: local-ci-fixture-only
+      PGDATABASE: tenant_ci_fixture
+      DATABASE_URL: postgresql://tenant_ci:local-ci-fixture-only@127.0.0.1:5432/tenant_ci_fixture
+      AGENT_TENANT_IDENTITY_ENABLED: "true"
+      TENANT_DB_REHEARSAL: "true"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies (offline business flows)
+        run: npm ci --no-audit --no-fund
+      - name: Refuse accidental non-fixture database connections
+        run: |
+          test "$PGHOST" = "127.0.0.1"
+          test "$PGDATABASE" = "tenant_ci_fixture"
+          test "$PGUSER" = "tenant_ci"
+          test "$(psql -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT current_database() || ':' || current_user")" = "tenant_ci_fixture:tenant_ci"
+      - name: Initialize the documented legacy schema
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f migrations/2026-09-03-base-auth-tables.sql
+          psql -X -v ON_ERROR_STOP=1 -f migrations/2026-07-08-agent-runs.sql
+      - name: Seed a historical unassigned run before migration
+        run: psql -X -v ON_ERROR_STOP=1 -f scripts/validation/seed_tenant_legacy_fixture.sql
+      - name: Apply migration twice only to the disposable CI database
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f migrations/2026-10-23-tenant-identity-shadow-runs.sql
+          psql -X -v ON_ERROR_STOP=1 -f migrations/2026-10-23-tenant-identity-shadow-runs.sql
+      - name: Test actual tenant sessions, memberships and run boundaries
+        run: npm test -- tests/tenant-postgres-integration.test.ts
