@@ -660,6 +660,10 @@ describe("LangGraph shadow route behavior", () => {
     const org = "11111111-1111-4111-8111-111111111111";
     for (const endpoint of ["generate", "execute"] as const) {
       resetRouteMocks();
+      // Existing tests reuse vi.fn references; isolate the negative-call
+      // assertions from calls made by preceding test cases.
+      routeMocks.createAgentRun.mockClear();
+      routeMocks.getAgentRunById.mockClear();
       vi.stubEnv("AGENT_TENANT_IDENTITY_ENABLED", "true");
       routeMocks.requireAgentSession.mockResolvedValue({
         session: { ...session, organizationId: org }, response: null
