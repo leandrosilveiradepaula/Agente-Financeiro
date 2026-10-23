@@ -11,7 +11,7 @@ import {
 
 type Column = { table_name: string; column_name: string; type_name: string; nullable: boolean; has_default: boolean };
 type Constraint = { table_name: string; constraint_type: string; column_names: string[]; target_table: string | null; target_schema: string | null; target_column_names: string[]; validated: boolean };
-type Index = { table_name: string; index_name: string; column_names: string[]; valid: boolean; ready: boolean; partial: boolean };
+type Index = { table_name: string; index_name: string; column_names: string[]; valid: boolean; ready: boolean; partial: boolean; predicate_sql: string | null };
 
 const legacy: Column[] = ([
   ["ai_agent_users","id","uuid"],["ai_agent_users","is_active","bool"],
@@ -44,7 +44,8 @@ const indexes:Index[] = ([
   ["ai_agent_user_organizations","idx_ai_agent_user_organizations_active_user",["user_id","organization_id"]],
   ["ai_agent_sessions","idx_ai_agent_sessions_organization",["organization_id"]],
   ["ai_agent_runs","idx_ai_agent_runs_organization_created_at",["organization_id","created_at"]]
-] as const).map(([table_name,index_name,column_names]) => ({table_name,index_name,column_names:[...column_names],valid:true,ready:true,partial:true}));
+] as const).map(([table_name,index_name,column_names]) => ({table_name,index_name,column_names:[...column_names],valid:true,ready:true,partial:true,
+  predicate_sql:table_name==="ai_agent_user_organizations"?"is_active = true":"organization_id IS NOT NULL"}));
 
 describe("read-only live tenant schema readiness", () => {
   it("distinguishes an unmigrated legacy database", () => {
@@ -73,6 +74,12 @@ describe("read-only live tenant schema readiness", () => {
     expect(assessTenantSchemaCatalog([...legacy,...tenant],constraints,missingIndex).status).toBe("migration_incomplete");
     const invalidFk=constraints.map((c,i)=>i===2?{...c,validated:false}:c);
     expect(assessTenantSchemaCatalog([...legacy,...tenant],invalidFk,indexes).status).toBe("migration_incomplete");
+  });
+  it("refuses a partial index that filters different rows from the migration", () => {
+    const wrongPredicate=indexes.map((idx,i)=>i===2?{...idx,predicate_sql:"organization_id IS NULL"}:idx);
+    const result=assessTenantSchemaCatalog([...legacy,...tenant],constraints,wrongPredicate);
+    expect(result.status).toBe("migration_incomplete");
+    expect(result.blockers).toContain("tenant_indexes_missing");
   });
   it("recognizes matching structure but never authorizes activation", () => {
     const result=assessTenantSchemaCatalog([...legacy,...tenant],constraints,indexes);
