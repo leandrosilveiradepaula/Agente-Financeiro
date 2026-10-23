@@ -656,4 +656,140 @@ describe("LangGraph shadow route behavior", () => {
     });
     expect(routeMocks.dispatchLangGraphExecuteApprovedShadow).not.toHaveBeenCalled();
   });
+  it("refuses tenant-mode official calls without an attested datasource organization", async () => {
+    const org = "11111111-1111-4111-8111-111111111111";
+    for (const endpoint of ["generate", "execute"] as const) {
+      resetRouteMocks();
+      vi.stubEnv("AGENT_TENANT_IDENTITY_ENABLED", "true");
+      routeMocks.requireAgentSession.mockResolvedValue({
+        session: { ...session, organizationId: org }, response: null
+      });
+      const sent = vi.fn();
+      vi.stubGlobal("fetch", sent);
+      const { POST } = endpoint === "generate"
+        ? await import("@/app/api/generate-sql/route")
+        : await import("@/app/api/execute-watson/route");
+      const body = endpoint === "generate"
+        ? { pergunta: "Financeiro por período" }
+        : { pergunta: "Executar SQL", agent_run_id: agentRunId, sql: "SELECT 1" };
+      const result = await POST(new Request(`http://localhost/api/${endpoint}`, {
+        method: "POST", body: JSON.stringify(body)
+      }));
+      expect(result.status).toBe(503);
+      expect(sent).not.toHaveBeenCalled();
+      expect(routeMocks.createAgentRun).not.toHaveBeenCalled();
+      expect(routeMocks.getAgentRunById).not.toHaveBeenCalled();
+      expect(routeMocks.afterCallbacks).toHaveLength(0);
+    }
+  });
+
+  it("prevents an organization B session from using organization A's official datasource", async () => {
+    resetRouteMocks();
+    vi.stubEnv("AGENT_TENANT_IDENTITY_ENABLED", "true");
+    vi.stubEnv("AGENT_TENANT_OFFICIAL_ORGANIZATION_ID",
+      "11111111-1111-4111-8111-111111111111");
+    routeMocks.requireAgentSession.mockResolvedValue({
+      session: {
+        ...session,
+        organizationId: "22222222-2222-4222-8222-222222222222"
+      }, response: null
+    });
+    const sent = vi.fn();
+    vi.stubGlobal("fetch", sent);
+    const { POST } = await import("@/app/api/generate-sql/route");
+    const response = await POST(new Request("http://localhost/api/generate-sql", {
+      method: "POST", body: JSON.stringify({ pergunta: "Question for B" })
+    }));
+    expect(response.status).toBe(503);
+    expect(sent).not.toHaveBeenCalled();
+  });
+
+  it("generates server-owned correlation and forces off shared n8n cache in scoped mode", async () => {
+    resetRouteMocks();
+    const org = "11111111-1111-4111-8111-111111111111";
+    vi.stubEnv("AGENT_TENANT_IDENTITY_ENABLED", "true");
+    vi.stubEnv("AGENT_TENANT_OFFICIAL_ORGANIZATION_ID", org);
+    routeMocks.requireAgentSession.mockResolvedValue({
+      session: { ...session, organizationId: org }, response: null
+    });
+    const send = mockOfficialGenerateFetch();
+    vi.stubGlobal("fetch", send);
+    const { POST } = await import("@/app/api/generate-sql/route");
+    const response = await POST(new Request("http://localhost/api/generate-sql", {
+      method: "POST",
+      body: JSON.stringify({
+        pergunta: "Unique financial question",
+        run_id: "user-forged-run",
+        options: { use_sql_cache: true }
+      })
+    }));
+    expect(response.status).toBe(200);
+    expect(routeMocks.createAgentRun).toHaveBeenCalledWith(expect.objectContaining({
+      runId: undefined,
+      session: expect.objectContaining({ organizationId: org })
+    }));
+    const body = JSON.parse(String(send.mock.calls[0][1].body));
+    expect(body.run_id).toBe(agentRunId);
+    expect(body.options.use_sql_cache).toBe(false);
+  });
+
+  it("rejects SQL returned from an unscoped n8n cache even when requesting no cache", async () => {
+    resetRouteMocks();
+    const org = "11111111-1111-4111-8111-111111111111";
+    vi.stubEnv("AGENT_TENANT_IDENTITY_ENABLED", "true");
+    vi.stubEnv("AGENT_TENANT_OFFICIAL_ORGANIZATION_ID", org);
+    routeMocks.requireAgentSession.mockResolvedValue({
+      session: { ...session, organizationId: org }, response: null
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true, status: 200, text: async () => JSON.stringify({
+        success: true, sql: "SELECT hidden_tenant_data",
+        cache: { enabled: true, hit: true, source: "sql_generation_cache" }
+      })
+    }));
+    const { POST } = await import("@/app/api/generate-sql/route");
+    const response = await POST(new Request("http://localhost/api/generate-sql", {
+      method: "POST", body: JSON.stringify({ pergunta: "Scoped question" })
+    }));
+    const body = await response.json();
+    expect(response.status).toBe(502);
+    expect(JSON.stringify(body)).not.toContain("hidden_tenant_data");
+    expect(routeMocks.updateAgentRunGeneratedSql).toHaveBeenCalledWith(expect.objectContaining({
+      id: agentRunId, executionStatus: "failed",
+      executionError: "tenant_sql_cache_not_isolated"
+    }));
+    expect(routeMocks.afterCallbacks).toHaveLength(0);
+  });
+
+  it("executes only tracked unchanged SQL when the tenant boundary is on", async () => {
+    resetRouteMocks();
+    const org = "11111111-1111-4111-8111-111111111111";
+    vi.stubEnv("AGENT_TENANT_IDENTITY_ENABLED", "true");
+    vi.stubEnv("AGENT_TENANT_OFFICIAL_ORGANIZATION_ID", org);
+    routeMocks.requireAgentSession.mockResolvedValue({
+      session: { ...session, organizationId: org }, response: null
+    });
+    const send = mockOfficialExecuteFetch();
+    vi.stubGlobal("fetch", send);
+    const { POST } = await import("@/app/api/execute-watson/route");
+    const make = (payload: Record<string, unknown>) => POST(
+      new Request("http://localhost/api/execute-watson", {
+        method: "POST", body: JSON.stringify({ pergunta: "Execute approved", ...payload })
+      })
+    );
+    expect((await make({ sql: "SELECT 1" })).status).toBe(403);
+    expect((await make({
+      agent_run_id: agentRunId,
+      sql: "SELECT modified_against_original"
+    })).status).toBe(409);
+    expect(send).not.toHaveBeenCalled();
+    expect(routeMocks.getAgentRunById).toHaveBeenCalledWith(agentRunId, org);
+    const response = await make({
+      agent_run_id: agentRunId,
+      sql: "SELECT * FROM dev_lakehouse.main_gold.resultado LIMIT 10"
+    });
+    expect(response.status).toBe(200);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
 });
