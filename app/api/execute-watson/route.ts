@@ -395,7 +395,9 @@ export async function POST(request: Request) {
         : {})
     };
 
-    if (agentRunId && isLangGraphShadowEnabled()) {
+    // The parallel witness must not replay an event already official in n8n.
+    if (agentRunId && isLangGraphShadowEnabled() &&
+        process.env.LANGGRAPH_OFFICIAL_VIA_N8N?.trim().toLowerCase() !== "true") {
       const principal = buildLangGraphShadowPrincipal(session);
       if (!principal) {
         logger.warn("execute_watson.langgraph_shadow_tenant_identity_missing", {
