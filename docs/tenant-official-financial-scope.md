@@ -1,6 +1,6 @@
 # G1/G4 — Identidade organizacional versus isolamento financeiro oficial
 
-**Estado:** somente código candidato da PR #24. Nenhuma migração aplicada, nenhum tenant provisionado, nenhuma variável ativada, nenhuma mudança no n8n, na Vercel ou no banco.
+**Estado de referência (23/10/2026):** PRs #24 e #25 incorporadas à Demo; deploy de código automático verificado. Nenhuma migração de tenant foi aplicada por este projeto, nenhuma associação real ou variável de tenant ativada e nenhuma alteração do n8n oficial autorizada. A aplicação da migração continua sujeita à aprovação operacional.
 
 ## Duas fronteiras distintas
 
@@ -35,3 +35,35 @@ Enquanto o modo tenant estiver habilitado, mas a vinculação oficial estiver au
 6. Qualquer execução de SQL real, migração, configuração de produção, ativação do Shadow, rotacionamento de segredos ou cutover depende de autorização explícita; não presumir aprovação a partir de CI verde.
 
 **Rollback do opt-in:** desabilitar o gate tenant no Produto recupera a compatibilidade do caminho legado, mas não remove dados de organizações nem migrações. N8n oficial e LangGraph continuam separados. Não apagar associações ou histórico sem uma decisão formal de retenção.
+
+## Rehearsal de migração em PostgreSQL descartável (CI)
+
+Workflow: `.github/workflows/demo-tenant-postgres-rehearsal.yml`.
+Executa um contêiner **PostgreSQL 16 isolado no GitHub Actions** com nomes,
+senha de fixture e porta restritos ao próprio runner. Não lê DSNs do produto,
+não usa credenciais da VPS nem chama provedores LLM.
+
+Sequência validada, em banco criado somente para o job:
+
+1. Criar o schema básico de autenticação e a tabela legada de runs usando
+   as migrations originais do repositório.
+2. Inserir um usuário e uma run **sintéticos e pré-migração**, sem tenant.
+3. Executar a migration de identidade tenant duas vezes (idempotência).
+4. Executar consultas **reais** das funções `session-service.ts` e
+   `agent-runs.ts` contra PostgreSQL, verificando duas organizações,
+   memberships múltiplas/inativas, seleção autenticada, contagem e listagem
+   filtradas, rejeição de referências/associações inválidas e invisibilidade
+   de runs legadas quando há escopo organizacional.
+
+Os testes de banco só rodam com `TENANT_DB_REHEARSAL=true` e com
+`DATABASE_URL` apontando explicitamente para
+`127.0.0.1/tenant_ci_fixture`, usuário `tenant_ci` e `CI=true`.
+Por padrão, a suíte `npm test` normal pula essa integração (sem rede,
+custo ou dados reais). O seed SQL também rejeita outra identidade de banco.
+
+**Limite:** esse ensaio prova o contrato SQL da migration contra o schema
+de referência existente no GitHub; não reconcilia versões/migrations já
+aplicadas no PostgreSQL real, nem prova isolamento físico de datasource,
+RLS/roles, credenciais por tenant, aprovação de execução ou paridade do
+agente financeiro. Não aplicar migration/rollback automaticamente em
+qualquer ambiente não descartável.
