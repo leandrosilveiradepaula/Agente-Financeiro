@@ -5,7 +5,9 @@ import {
   getAgentRunById,
   markAgentRunBlocked,
   updateAgentRunExecution,
-  updateAgentRunGeneratedSql
+  updateAgentRunGeneratedSql,
+  recordShadowDispatchReceipt,
+  type ShadowDispatchReceiptStatus
 } from "@/lib/agent-runs";
 import { normalizeGenerateSqlResponse } from "@/lib/generate-sql-normalization";
 import {
@@ -989,6 +991,8 @@ export async function POST(request: Request) {
           requestId, agentRunId: agentRun.id
         });
       } else after(async () => {
+        let receiptStatus: ShadowDispatchReceiptStatus = "unexpected_error";
+        let receiptHttpStatus: number | undefined;
         try {
           const shadowResult = await dispatchLangGraphGenerateShadow({
             agentRunId: agentRun.id,
@@ -999,6 +1003,8 @@ export async function POST(request: Request) {
             llmSelection: shadowLlmSelection?.selection ?? null,
             timeoutMs: shadowLlmSelection?.model.timeout_ms ?? null
           });
+          receiptStatus = shadowResult.status;
+          receiptHttpStatus = shadowResult.httpStatus;
 
           if (shadowResult.status !== "sent" && shadowResult.status !== "disabled") {
             try {
@@ -1010,7 +1016,7 @@ export async function POST(request: Request) {
                 errorName: shadowResult.errorName
               });
             } catch {
-              // Preserve the official response path even if post-response logging fails.
+              // A post-response logging failure cannot alter the official reply.
             }
           }
         } catch {
@@ -1021,7 +1027,27 @@ export async function POST(request: Request) {
               errorName: "UnexpectedShadowError"
             });
           } catch {
-            // Preserve the official response path even if post-response logging fails.
+            // Do not expose error text, SQL, tokens or credentials.
+          }
+        } finally {
+          try {
+            await recordShadowDispatchReceipt({
+              id: agentRun.id,
+              event: "generate",
+              requestId,
+              status: receiptStatus,
+              httpStatus: receiptHttpStatus,
+              organizationId: tenant.status === "ready" ? tenant.organizationId : undefined
+            });
+          } catch {
+            try {
+              logger.warn("generate_sql.shadow_receipt_persistence_failed", {
+                requestId,
+                agentRunId: agentRun.id
+              });
+            } catch {
+              // Receipt persistence must never affect the official response.
+            }
           }
         }
       });
