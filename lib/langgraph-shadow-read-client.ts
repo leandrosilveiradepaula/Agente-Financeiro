@@ -139,7 +139,7 @@ async function readLangGraphShadow<T>(
       return sanitizedFailure("invalid_response", undefined, response.status);
     }
     if (target.mode === "n8n" &&
-        (!isRecord(body) || body.contract_version !== "1")) {
+        !isCorrelatedN8nEvidenceResponse(body, relay)) {
       return sanitizedFailure("invalid_response", undefined, response.status);
     }
     const parsed = parser(body);
@@ -151,6 +151,53 @@ async function readLangGraphShadow<T>(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+// Defense in depth: n8n verifies correlation, but the Product is the tenant
+// authorization boundary. Never trust relay records as belonging to the
+// already-authorized run unless every identity and requested bound matches.
+function isCorrelatedN8nEvidenceResponse(
+  value: unknown,
+  request: RelayRequest
+): boolean {
+  if (!isRecord(value) || value.contract_version !== "1") return false;
+
+  if (request.operation === "list") {
+    if (value.agent_run_id !== request.agent_run_id ||
+        !Array.isArray(value.items) ||
+        value.items.length > request.limit) return false;
+    const ids = new Set<string>();
+    return value.items.every((item) => {
+      if (!isRecord(item) || item.agent_run_id !== request.agent_run_id) return false;
+      const id = stringField(item, "shadow_record_id");
+      if (!id || ids.has(id)) return false;
+      ids.add(id);
+      return true;
+    });
+  }
+
+  if (request.operation === "detail") {
+    return value.shadow_record_id === request.shadow_record_id;
+  }
+
+  if (!isRecord(value.run) ||
+      value.run.shadow_record_id !== request.shadow_record_id ||
+      !Array.isArray(value.steps) || value.steps.length > 100 ||
+      !Array.isArray(value.edges) || value.edges.length > 200) {
+    return false;
+  }
+  const stepIds = new Set<string>();
+  for (const step of value.steps) {
+    if (!isRecord(step)) return false;
+    const stepId = stringField(step, "id");
+    if (!stepId || stepIds.has(stepId)) return false;
+    stepIds.add(stepId);
+  }
+  return value.edges.every(
+    (edge) => isRecord(edge) &&
+      typeof edge.source === "string" && stepIds.has(edge.source) &&
+      typeof edge.target === "string" && stepIds.has(edge.target)
+  );
 }
 
 function parseShadowRunList(value: unknown): ShadowRunSummary[] | null {
