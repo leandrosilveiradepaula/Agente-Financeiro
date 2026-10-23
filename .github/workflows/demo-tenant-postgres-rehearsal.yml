@@ -70,8 +70,8 @@ jobs:
           test "$PGHOST" = "127.0.0.1"
           test "$PGDATABASE" = "tenant_ci_fixture"
           test "$PGUSER" = "tenant_ci"
-          psql -X -v ON_ERROR_STOP=1 -Atc \
-            "SELECT CASE WHEN current_database() = 'tenant_ci_fixture' AND current_user = 'tenant_ci' THEN 'FIXTURE_OK' ELSE 1/0::text END"
+          test "$(psql -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT current_database() || ':' || current_user")" = "tenant_ci_fixture:tenant_ci"
       - name: Initialize the documented legacy schema
         run: |
           psql -X -v ON_ERROR_STOP=1 -f migrations/2026-09-03-base-auth-tables.sql
