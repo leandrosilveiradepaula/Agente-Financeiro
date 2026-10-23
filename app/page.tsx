@@ -57,6 +57,10 @@ import {
   upsertQueryHistory,
   writeQueryHistory
 } from "@/lib/history";
+import {
+  getAuthenticatedHistoryScope,
+  sessionHistoryIdentityChanged
+} from "@/lib/authenticated-history-scope";
 import { normalizeWatsonResult } from "@/lib/watson-result-normalization";
 import { getAgentDisplayVersion } from "@/lib/agent-display-version";
 import type { LlmModelsResponse, PublicLlmModel } from "@/lib/llm-provider-types";
@@ -102,6 +106,9 @@ type AuthenticatedUser = {
   name: string;
   email: string;
   profile: string;
+  // Both fields come from an authenticated server-side session or login.
+  tenantIdentityEnabled?: boolean;
+  organizationId?: string | null;
 };
 
 type AccountPolicy = {
@@ -226,6 +233,7 @@ export default function Home() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authenticatedUser, setAuthenticatedUser] = useState<AuthenticatedUser | null>(null);
+  const historyScope = getAuthenticatedHistoryScope(authenticatedUser);
   const [accountPolicy, setAccountPolicy] = useState<AccountPolicy | null>(null);
   const [policyLoading, setPolicyLoading] = useState(false);
   const [policyError, setPolicyError] = useState("");
@@ -352,10 +360,9 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const userId = authenticatedUser?.id;
     let active = true;
 
-    if (authState !== "unlocked" || !userId || !accountPolicy) {
+    if (authState !== "unlocked" || !historyScope || !accountPolicy) {
       setHistoryItems([]);
       setExecutiveReportHistory([]);
       return () => {
@@ -369,7 +376,7 @@ export default function Home() {
         return;
       }
 
-      const localItems = sanitizeQueryHistoryForPolicy(readQueryHistory(userId), {
+      const localItems = sanitizeQueryHistoryForPolicy(readQueryHistory(historyScope), {
         canViewSql: canViewSqlByPolicy
       });
       const persistentItems = sanitizeQueryHistoryForPolicy(await fetchPersistentQueryHistory(), {
@@ -385,7 +392,7 @@ export default function Home() {
 
     setExecutiveReportHistory(
       canSeeReportHistory
-        ? sanitizeExecutiveReportHistoryForPolicy(readExecutiveReportHistory(userId), {
+        ? sanitizeExecutiveReportHistoryForPolicy(readExecutiveReportHistory(historyScope), {
             canViewSql: canViewSqlByPolicy
           })
         : []
@@ -397,7 +404,7 @@ export default function Home() {
   }, [
     accountPolicy,
     authState,
-    authenticatedUser?.id,
+    historyScope,
     canSeeQueryHistory,
     canSeeReportHistory,
     canViewSqlByPolicy
@@ -518,6 +525,49 @@ export default function Home() {
     };
   }, []);
 
+  // Organization selection can be changed by a separate authenticated tab.
+  // Invalidate the entire volatile workspace before its older SQL/results
+  // can be used under another server-side organization selection.
+  useEffect(() => {
+    if (authState !== "unlocked" || !authenticatedUser) return;
+
+    let live = true;
+    const revalidate = async () => {
+      try {
+        const response = await fetch("/api/auth/session", { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json() as {
+          authenticated?: boolean;
+          user?: AuthenticatedUser | null;
+        };
+        if (!live) return;
+        if (!data.authenticated ||
+            sessionHistoryIdentityChanged(authenticatedUser, data.user)) {
+          window.location.reload();
+        }
+      } catch {
+        // Network errors do not imply another tenant; the server continues
+        // to enforce identity and all financial requests on every call.
+      }
+    };
+    const onFocus = () => { void revalidate(); };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void revalidate();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      live = false;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [
+    authState,
+    authenticatedUser?.id,
+    authenticatedUser?.tenantIdentityEnabled,
+    authenticatedUser?.organizationId
+  ]);
+
   async function loadAccountPolicy(active = true) {
     setPolicyLoading(true);
     setPolicyError("");
@@ -551,14 +601,13 @@ export default function Home() {
   }
 
   function saveHistoryItem(item: QueryHistoryItem) {
-    const userId = authenticatedUser?.id;
-    if (!userId || !canSeeQueryHistory) return;
+    if (!historyScope || !canSeeQueryHistory) return;
 
     const safeItem = canViewSqlByPolicy ? item : { ...item, sql: "" };
 
     setHistoryItems((currentItems) => {
       const nextItems = upsertQueryHistory(currentItems, safeItem);
-      writeQueryHistory(nextItems, userId);
+      writeQueryHistory(nextItems, historyScope);
       return nextItems;
     });
   }
@@ -570,7 +619,7 @@ export default function Home() {
 
     setExecutiveSummaryState({ resultKey, summary });
 
-    if (!question.trim() || !canSeeReportHistory || !authenticatedUser?.id) {
+    if (!question.trim() || !canSeeReportHistory || !historyScope) {
       return;
     }
 
@@ -595,7 +644,7 @@ export default function Home() {
       });
 
       if (changed) {
-        writeQueryHistory(nextItems);
+        writeQueryHistory(nextItems, historyScope);
       }
 
       return nextItems;
@@ -638,12 +687,12 @@ export default function Home() {
         row_count: execution.response?.row_count,
         execution_time_ms: execution.response?.execution_time_ms,
         generated_at: new Date().toISOString()
-      }, authenticatedUser.id)
+      }, historyScope)
     );
-  }, [authenticatedUser?.id, canSeeReportHistory, canViewSqlByPolicy, execution.response, executionResultKey, generation.response?.detected_intent, generation.response?.validation_status, interfaceSettings.markdownIncludeSql, question, resultMetadata, sql]);
+  }, [historyScope, canSeeReportHistory, canViewSqlByPolicy, execution.response, executionResultKey, generation.response?.detected_intent, generation.response?.validation_status, interfaceSettings.markdownIncludeSql, question, resultMetadata, sql]);
 
   const markPdfExported = useCallback(() => {
-    if (!question.trim() || !authenticatedUser?.id || !canSeeQueryHistory) {
+    if (!question.trim() || !historyScope || !canSeeQueryHistory) {
       return;
     }
 
@@ -668,12 +717,12 @@ export default function Home() {
       });
 
       if (changed) {
-        writeQueryHistory(nextItems, authenticatedUser.id);
+        writeQueryHistory(nextItems, historyScope);
       }
 
       return nextItems;
     });
-  }, [authenticatedUser?.id, canSeeQueryHistory, question, sql]);
+  }, [historyScope, canSeeQueryHistory, question, sql]);
 
   function buildHistoryItem({
     pergunta,
@@ -755,7 +804,7 @@ export default function Home() {
   function removeHistoryItem(id: string) {
     setHistoryItems((currentItems) => {
       const nextItems = currentItems.filter((item) => item.id !== id);
-      writeQueryHistory(nextItems, authenticatedUser?.id);
+      writeQueryHistory(nextItems, historyScope);
       return nextItems;
     });
   }
@@ -766,15 +815,15 @@ export default function Home() {
     }
 
     setHistoryItems([]);
-    writeQueryHistory([], authenticatedUser?.id);
+    writeQueryHistory([], historyScope);
   }
 
   function removeExecutiveReportHistoryItem(id: string) {
-    setExecutiveReportHistory(removeExecutiveReportHistory(id, authenticatedUser?.id));
+    setExecutiveReportHistory(removeExecutiveReportHistory(id, historyScope));
   }
 
   function clearExecutiveReports() {
-    setExecutiveReportHistory(clearExecutiveReportHistory(authenticatedUser?.id));
+    setExecutiveReportHistory(clearExecutiveReportHistory(historyScope));
   }
 
   function clearLocalErrors() {
@@ -861,6 +910,10 @@ export default function Home() {
       }
 
       setPassword("");
+      // The browser may still hold another user's/organization's workspace.
+      clearWorkspace();
+      setHistoryItems([]);
+      setExecutiveReportHistory([]);
       setAuthenticatedUser(data.user ?? null);
       setAuthState("unlocked");
       await loadAccountPolicy();
