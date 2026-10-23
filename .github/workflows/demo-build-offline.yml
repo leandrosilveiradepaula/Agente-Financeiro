@@ -4,22 +4,32 @@ on:
   pull_request:
     branches: [demo/grupo-horizonte]
     paths:
+      - "app/**"
+      - "components/**"
+      - "lib/**"
+      - "tests/**"
+      - "migrations/**"
       - "next.config.ts"
-      - "lib/exportExecutiveFiles.ts"
-      - "components/ExecutiveReportActions.tsx"
-      - "tests/export-executive-files.test.ts"
       - "package.json"
       - "package-lock.json"
+      - "tsconfig*.json"
+      - "tailwind.config.*"
+      - "postcss.config.*"
       - ".github/workflows/demo-build-offline.yml"
   push:
     branches: [demo/grupo-horizonte]
     paths:
+      - "app/**"
+      - "components/**"
+      - "lib/**"
+      - "tests/**"
+      - "migrations/**"
       - "next.config.ts"
-      - "lib/exportExecutiveFiles.ts"
-      - "components/ExecutiveReportActions.tsx"
-      - "tests/export-executive-files.test.ts"
       - "package.json"
       - "package-lock.json"
+      - "tsconfig*.json"
+      - "tailwind.config.*"
+      - "postcss.config.*"
       - ".github/workflows/demo-build-offline.yml"
 
 permissions:
@@ -45,8 +55,8 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Check TypeScript
         run: npm run lint
-      - name: Check Excel/CSV export contracts offline
-        run: npm test -- tests/export-executive-files.test.ts
+      - name: Full offline application regression
+        run: npm test
       - name: Smoke test the published ExcelJS browser workbook (no remote API)
         run: |
           node --input-type=module - <<'JS'
