@@ -34,12 +34,12 @@ export type ShadowDispatchReceiptSummary = {
 };
 
 export function parseShadowDispatchReceipts(metadata: unknown): ShadowDispatchReceiptSummary[] {
-  const dispatch = isObject(metadata) && isObject(metadata.shadow_dispatch)
+  const dispatch: JsonRecord = isObject(metadata) && isObject(metadata.shadow_dispatch)
     ? metadata.shadow_dispatch
     : {};
 
   return EVENTS.map(({ key, label }) => {
-    const receipt = isObject(dispatch[key]) ? dispatch[key] : {};
+    const receipt: JsonRecord = isObject(dispatch[key]) ? dispatch[key] : {};
     const status = typeof receipt.status === "string" &&
       Object.prototype.hasOwnProperty.call(LABELS, receipt.status)
       ? receipt.status as DeliveryStatus
