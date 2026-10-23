@@ -514,6 +514,16 @@ export async function POST(request: Request) {
     return buildErrorResponse("Informe uma pergunta para gerar SQL.", 400);
   }
 
+  if (tenant.status === "ready" && isDemoInterfaceMode()) {
+    // The legacy Demo generate webhook also EXECUTES SQL. A tenant-scoped
+    // request must not run financial SQL before a distinct approval event.
+    // Do not alter the legacy official route while the opt-in is disabled.
+    return buildErrorResponse(
+      "Geração com execução automática não autorizada no modo multicliente.",
+      409
+    );
+  }
+
   const requestMetadata = await getRequestMetadata();
   const agentRun = await createAgentRun({
     requestId,
