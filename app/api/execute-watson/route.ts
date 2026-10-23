@@ -20,7 +20,10 @@ import {
 } from "@/lib/langgraph-shadow-client";
 import type { ExecuteWatsonResponse } from "@/lib/types";
 import { normalizeWatsonResult } from "@/lib/watson-result-normalization";
-import { getSessionTenantIdentity } from "@/lib/tenant-identity";
+import {
+  getSessionTenantIdentity,
+  getTenantOfficialExecutionScope
+} from "@/lib/tenant-identity";
 
 export const runtime = "nodejs";
 
@@ -80,6 +83,10 @@ export async function POST(request: Request) {
   if (tenant.status === "required") {
     return errorResponse("Identidade organizacional não configurada para esta sessão.", 403);
   }
+  if (tenant.status === "ready" &&
+      getTenantOfficialExecutionScope(session).status !== "ready") {
+    return errorResponse("Destino financeiro da organização não homologado.", 503);
+  }
 
   let body: unknown;
 
@@ -96,6 +103,12 @@ export async function POST(request: Request) {
   const requestedRunId =
     asString(record.agent_run_id).trim() || asString(record.run_id).trim();
   const agentRunId = isUuid(requestedRunId) ? requestedRunId : null;
+
+  if (tenant.status === "ready" && !agentRunId) {
+    // Execution without a tenant-scoped persisted Generate/Approval record
+    // would allow a user-supplied SQL to bypass run ownership.
+    return errorResponse("Execução sem histórico organizacional autorizado.", 403);
+  }
 
   if (!pergunta) {
     logger.warn("execute_watson.empty_question", { requestId });
@@ -120,6 +133,13 @@ export async function POST(request: Request) {
   }
 
   const sql = receivedSql || existingRun?.sql_generated?.trim() || "";
+
+  if (tenant.status === "ready" && receivedSql &&
+      receivedSql !== existingRun?.sql_generated?.trim()) {
+    // A modified SQL must return through an explicit repair/reapproval gate,
+    // rather than being silently executed as an old authorized run.
+    return errorResponse("SQL modificada exige nova validação e aprovação.", 409);
+  }
 
   if (!sql) {
     logger.warn("execute_watson.empty_sql", { requestId });
