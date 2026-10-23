@@ -206,3 +206,26 @@ Para fechar G1, comparar **a mesma run** em três fontes independentes:
 com IDs e versão, e (3) dados da run oficial. Um recibo isolado ou um
 HTTP 202 nunca bastam. Não rodar SQL real nem chamadas pagas por conta
 deste registro.
+
+
+## Proteção de comparação pós-geração, tenant e S2S (2026-10-23)
+
+O endpoint administrativo de comparação SQL passa `organization_id` somente
+quando obtido da sessão autenticada de tenant. A leitura SQL anterior,
+`authorizeAdminRunReadAccess`, já limita o acesso à execução pela mesma
+organização. Um ID histórico em `ai_agent_runs` não deve criar uma nova
+identidade autorizada com a feature desligada. O LangGraph bound exige
+`principal.organization_id` correspondente; sem encaminhar este dado, G1
+rejeitaria comparações legítimas de tenants ativados.
+
+O cliente de comparação recusa URLs de API configuradas com credenciais,
+query/fragment/path adicional e, quando executado na Vercel, HTTP ou destino
+privado/local; redirecionamentos também são negados. O comportamento local
+offline permanece disponível. Essa restrição evita encaminhar token S2S
+a um transporte inseguro. Testes verificam a preservação do payload
+anterior em modo legado e falha fechada em configuração indevida.
+
+Esta etapa é apenas código e testes offline na PR #29: nenhuma ativação,
+migration, deploy, chamada real Gemini, SQL financeiro ou alteração do
+n8n oficial foi autorizada ou executada. Os checks Vercel podem continuar
+bloqueados por limite de deployments; não forçar publicação para contornar.
