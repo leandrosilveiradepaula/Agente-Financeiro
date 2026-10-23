@@ -5,7 +5,6 @@ import { inspectLangGraphShadowDispatchConfiguration } from "@/lib/langgraph-sha
 import { isLangGraphShadowEvidenceReadConfigured } from "@/lib/langgraph-shadow-read-client";
 import { requireAgentSession } from "@/lib/server-auth";
 import { inspectTenantIdentityConfiguration } from "@/lib/tenant-identity";
-import { inspectTenantSchemaReadiness } from "@/lib/tenant-schema-readiness";
 
 export const runtime = "nodejs";
 
@@ -61,8 +60,6 @@ export async function GET() {
     );
   }
 
-  const tenantSchema = await inspectTenantSchemaReadiness();
-
   return NextResponse.json({
     success: true,
     n8n_generate_sql: sanitizeEndpoint(
@@ -75,7 +72,6 @@ export async function GET() {
       // URL and S2S credentials are never returned to the browser.
       evidence_read_configured: isLangGraphShadowEvidenceReadConfigured()
     },
-    tenant_identity: inspectTenantIdentityConfiguration(),
-    tenant_schema: tenantSchema
+    tenant_identity: inspectTenantIdentityConfiguration()
   }, { headers: { "Cache-Control": "no-store" } });
 }
