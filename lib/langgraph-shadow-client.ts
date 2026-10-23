@@ -1,5 +1,6 @@
 import type { AgentSession } from "@/lib/auth/auth-types";
 import type { LlmSelection } from "@/lib/llm-provider-types";
+import { getSessionTenantIdentity } from "@/lib/tenant-identity";
 
 const DEFAULT_LANGGRAPH_BASE_URL = "http://127.0.0.1:8000";
 const DEFAULT_SHADOW_TIMEOUT_MS = 1500;
@@ -15,6 +16,7 @@ export type LangGraphShadowPrincipal = {
   id: string;
   email: string;
   profile: string;
+  organization_id?: string;
 };
 
 export type LangGraphShadowCorrelationMetadata = {
@@ -119,11 +121,14 @@ export function isLangGraphShadowDispatchConfigured(env: ShadowEnv = process.env
 
 export function buildLangGraphShadowPrincipal(
   session: AgentSession
-): LangGraphShadowPrincipal {
+): LangGraphShadowPrincipal | null {
+  const tenant = getSessionTenantIdentity(session);
+  if (tenant.status === "required") return null;
   return {
     id: session.userId,
     email: session.email,
-    profile: session.userProfile
+    profile: session.userProfile,
+    ...(tenant.status === "ready" ? { organization_id: tenant.organizationId } : {})
   };
 }
 

@@ -17,6 +17,9 @@ export type AgentSession = {
   name: string;
   email: string;
   userProfile: string;
+  // Populated only from the persisted, active membership selected for this
+  // server-side session. It is never derived from request input or email.
+  organizationId?: string;
 };
 
 export type RequestMetadata = {

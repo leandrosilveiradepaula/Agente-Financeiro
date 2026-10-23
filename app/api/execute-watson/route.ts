@@ -20,6 +20,7 @@ import {
 } from "@/lib/langgraph-shadow-client";
 import type { ExecuteWatsonResponse } from "@/lib/types";
 import { normalizeWatsonResult } from "@/lib/watson-result-normalization";
+import { getSessionTenantIdentity } from "@/lib/tenant-identity";
 
 export const runtime = "nodejs";
 
@@ -75,6 +76,10 @@ export async function POST(request: Request) {
       )
     );
   }
+  const tenant = getSessionTenantIdentity(session);
+  if (tenant.status === "required") {
+    return errorResponse("Identidade organizacional não configurada para esta sessão.", 403);
+  }
 
   let body: unknown;
 
@@ -97,7 +102,10 @@ export async function POST(request: Request) {
     return errorResponse("Informe a pergunta original para executar no Watson.", 400);
   }
 
-  const existingRun = agentRunId ? await getAgentRunById(agentRunId) : null;
+  const existingRun = agentRunId ? await getAgentRunById(
+    agentRunId,
+    tenant.status === "ready" ? tenant.organizationId : undefined
+  ) : null;
 
   if (agentRunId && !existingRun) {
     return errorResponse("Histórico de execução não encontrado.", 404);
@@ -367,8 +375,11 @@ export async function POST(request: Request) {
 
     if (agentRunId && isLangGraphShadowEnabled()) {
       const principal = buildLangGraphShadowPrincipal(session);
-
-      after(async () => {
+      if (!principal) {
+        logger.warn("execute_watson.langgraph_shadow_tenant_identity_missing", {
+          requestId, agentRunId
+        });
+      } else after(async () => {
         try {
           const shadowResult = await dispatchLangGraphExecuteApprovedShadow({
             agentRunId,

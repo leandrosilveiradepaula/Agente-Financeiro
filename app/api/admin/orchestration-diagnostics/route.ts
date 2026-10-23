@@ -4,6 +4,7 @@ import { getProfilePolicy } from "@/lib/profile-policy";
 import { inspectLangGraphShadowDispatchConfiguration } from "@/lib/langgraph-shadow-client";
 import { isLangGraphShadowEvidenceReadConfigured } from "@/lib/langgraph-shadow-read-client";
 import { requireAgentSession } from "@/lib/server-auth";
+import { inspectTenantIdentityConfiguration } from "@/lib/tenant-identity";
 
 export const runtime = "nodejs";
 
@@ -70,6 +71,7 @@ export async function GET() {
       ...inspectLangGraphShadowDispatchConfiguration(),
       // URL and S2S credentials are never returned to the browser.
       evidence_read_configured: isLangGraphShadowEvidenceReadConfigured()
-    }
+    },
+    tenant_identity: inspectTenantIdentityConfiguration()
   }, { headers: { "Cache-Control": "no-store" } });
 }

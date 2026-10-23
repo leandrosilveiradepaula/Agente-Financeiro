@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getAgentRunById, sanitizeAgentRunForViewer } from "@/lib/agent-runs";
-import { getProfilePolicy } from "@/lib/profile-policy";
+import { sanitizeAgentRunForViewer } from "@/lib/agent-runs";
+import { authorizeAdminRunReadAccess } from "@/lib/admin-run-access";
 import { requireAgentSession } from "@/lib/server-auth";
 import { logger } from "@/lib/server-logger";
 
@@ -18,64 +18,10 @@ export async function GET(_request: Request, context: RouteContext) {
     return response;
   }
 
-  const policy = await getProfilePolicy(session.userProfile);
-
-  if (!policy) {
-    return NextResponse.json(
-      { success: false, error: "profile_policy_not_found" },
-      { status: 403 }
-    );
-  }
-
-  const canViewAllRuns =
-    policy.can_view_all_runs || ["admin", "auditoria"].includes(session.userProfile);
-  const canViewOwnRuns = policy.can_view_own_runs || canViewAllRuns;
-
-  if (!canViewOwnRuns) {
-    logger.warn("admin_runs.detail_forbidden", {
-      requestId,
-      userId: session.userId,
-      userEmail: session.email,
-      userProfile: session.userProfile,
-      table: "public.ai_agent_runs",
-      canViewAllRuns,
-      canViewOwnRuns
-    });
-
-    return NextResponse.json(
-      { success: false, error: "forbidden" },
-      { status: 403 }
-    );
-  }
-
   const { id } = await context.params;
-  const run = await getAgentRunById(id);
-
-  if (!run) {
-    return NextResponse.json(
-      { success: false, error: "run_not_found" },
-      { status: 404 }
-    );
-  }
-
-  const ownsRun =
-    run.user_id === session.userId ||
-    Boolean(run.user_email && run.user_email.toLowerCase() === session.email.toLowerCase());
-
-  if (!canViewAllRuns && !ownsRun) {
-    logger.warn("admin_runs.detail_out_of_scope", {
-      requestId,
-      userId: session.userId,
-      userEmail: session.email,
-      userProfile: session.userProfile,
-      table: "public.ai_agent_runs",
-      runId: id
-    });
-
-    return NextResponse.json(
-      { success: false, error: "forbidden" },
-      { status: 403 }
-    );
+  const access = await authorizeAdminRunReadAccess(id, session);
+  if (!access.allowed) {
+    return NextResponse.json({ success: false, error: access.error }, { status: access.status });
   }
 
   logger.info("admin_runs.detail_completed", {
@@ -85,11 +31,11 @@ export async function GET(_request: Request, context: RouteContext) {
     userProfile: session.userProfile,
     table: "public.ai_agent_runs",
     runId: id,
-    scope: canViewAllRuns ? "all_runs" : "own_runs"
+    scope: access.scope
   });
 
   return NextResponse.json({
     success: true,
-    run: sanitizeAgentRunForViewer(run, policy, { includeFullSql: true })
+    run: sanitizeAgentRunForViewer(access.run, access.policy, { includeFullSql: true })
   });
 }

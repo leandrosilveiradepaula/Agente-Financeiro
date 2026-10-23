@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import type { AgentSession, RequestMetadata } from "@/lib/auth/auth-types";
 import type { ResultRow } from "@/lib/types";
+import { getSessionTenantIdentity } from "@/lib/tenant-identity";
 
 type JsonValue =
   | string
@@ -30,6 +31,13 @@ const SENSITIVE_KEYS = new Set([
   "x-agent-internal-token"
 ]);
 
+export class TenantIdentityRequiredError extends Error {
+  constructor() {
+    super("Tenant identity is required");
+    this.name = "TenantIdentityRequiredError";
+  }
+}
+
 export type AgentRunRow = {
   id: string;
   created_at: string;
@@ -41,6 +49,7 @@ export type AgentRunRow = {
   user_name: string | null;
   user_profile: string | null;
   auth_source: string | null;
+  organization_id: string | null;
   pergunta: string;
   pergunta_normalizada: string | null;
   detected_intent: string | null;
@@ -217,22 +226,23 @@ export function sanitizeAgentRunForViewer(
   };
 }
 
-async function getRunById(id: string) {
+async function getRunById(id: string, organizationId?: string) {
   const result = await db.query<AgentRunRow>(
     `
     SELECT *
     FROM public.ai_agent_runs
     WHERE id = $1
+    ${organizationId ? "AND organization_id = $2::uuid" : ""}
     LIMIT 1
     `,
-    [id]
+    organizationId ? [id, organizationId] : [id]
   );
 
   return result.rows[0] ?? null;
 }
 
-export async function getAgentRunById(id: string) {
-  const run = await getRunById(id);
+export async function getAgentRunById(id: string, organizationId?: string) {
+  const run = await getRunById(id, organizationId);
   return run ? sanitizeAgentRun(run) : null;
 }
 
@@ -242,6 +252,7 @@ export async function findLatestComparableLlmRunForCacheSavings(params: {
   currentRunId?: string | null;
   currentCreatedAt?: string | null;
   sqlGenerated?: string | null;
+  organizationId?: string;
 }) {
   if (!params.perguntaNormalizada && !params.detectedIntent && !params.sqlGenerated) {
     return null;
@@ -280,6 +291,11 @@ export async function findLatestComparableLlmRunForCacheSavings(params: {
     filters.push(`sql_generated = $${values.length}`);
   }
 
+  if (params.organizationId) {
+    values.push(params.organizationId);
+    filters.push(`organization_id = $${values.length}::uuid`);
+  }
+
   const result = await db.query<AgentRunRow>(
     `
     SELECT *
@@ -305,6 +321,11 @@ export async function createAgentRun(input: {
   extraMetadata?: Record<string, unknown>;
 }) {
   const runId = input.runId || crypto.randomUUID();
+  const tenant = getSessionTenantIdentity(input.session);
+  if (tenant.status === "required") {
+    throw new TenantIdentityRequiredError();
+  }
+  const persistOrganization = tenant.status === "ready";
   const result = await db.query<AgentRunRow>(
     `
     INSERT INTO public.ai_agent_runs (
@@ -314,6 +335,7 @@ export async function createAgentRun(input: {
       user_email,
       user_name,
       user_profile,
+      ${persistOrganization ? "organization_id," : ""}
       auth_source,
       pergunta,
       pergunta_normalizada,
@@ -322,7 +344,7 @@ export async function createAgentRun(input: {
       user_agent,
       metadata
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)
+    VALUES ($1, $2, $3, $4, $5, $6, ${persistOrganization ? "$7, " : ""}$${persistOrganization ? 8 : 7}, $${persistOrganization ? 9 : 8}, $${persistOrganization ? 10 : 9}, $${persistOrganization ? 11 : 10}, $${persistOrganization ? 12 : 11}, $${persistOrganization ? 13 : 12}, $${persistOrganization ? 14 : 13}::jsonb)
     RETURNING *
     `,
     [
@@ -332,6 +354,7 @@ export async function createAgentRun(input: {
       input.session.email,
       input.session.name,
       input.session.userProfile,
+      ...(persistOrganization ? [tenant.organizationId] : []),
       "database_session",
       input.pergunta,
       normalizeQuestion(input.pergunta),
@@ -610,6 +633,7 @@ export async function listAgentRuns(input: {
   viewerUserId?: string;
   viewerEmail?: string;
   intent?: string;
+  organizationId?: string;
   limit: number;
   offset: number;
 }) {
@@ -645,6 +669,11 @@ export async function listAgentRuns(input: {
   if (input.intent) {
     values.push(input.intent);
     filters.push(`detected_intent = $${values.length}`);
+  }
+
+  if (input.organizationId) {
+    values.push(input.organizationId);
+    filters.push(`organization_id = $${values.length}::uuid`);
   }
 
   const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
