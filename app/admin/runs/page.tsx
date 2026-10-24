@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { LlmUsageSummary } from "@/components/LlmUsageSummary";
 import { ShadowRunPanel } from "@/components/ShadowRunPanel";
+import { ShadowDispatchReceiptPanel } from "@/components/ShadowDispatchReceiptPanel";
 
 type AuthenticatedUser = {
   id: string;
@@ -938,6 +939,7 @@ function RunDetails({ run, onCopy }: { run: AgentRun; onCopy: (value: string | n
         </div>
       </DetailSection>
 
+      <ShadowDispatchReceiptPanel metadata={run.metadata} />
       <ShadowRunPanel agentRunId={run.id} />
 
       <DetailSection title="Metadados">

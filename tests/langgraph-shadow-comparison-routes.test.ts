@@ -26,6 +26,13 @@ describe("Admin SQL comparison read boundary", () => {
     expect(route).toContain("provider: run.llm_provider");
     expect(route).toContain("model: run.llm_model");
     expect(route).toContain("originalUserId: run.user_id");
+    expect(route).toContain("getSessionTenantIdentity(session)");
+    expect(route).toContain('authorizedTenant.status === "ready"');
+    expect(route).toContain("organizationId: authorizedTenant.organizationId");
+    expect(route).not.toContain("organizationId: run.organization_id");
+    expect(route).not.toContain("organizationId: request");
+    expect(route.indexOf("authorizeAdminRunReadAccess(id, session)"))
+      .toBeLessThan(route.indexOf("getSessionTenantIdentity(session)"));
     expect(route).toContain("agentRunId: id");
     expect(route).not.toContain("request.json()");
     // Product's later execution SQL is intentionally compared.

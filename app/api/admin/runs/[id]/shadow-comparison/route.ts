@@ -6,6 +6,7 @@ import {
 } from "@/lib/langgraph-shadow-comparison-client";
 import { assessRecordedProviderIdentity } from "@/lib/shadow-provider-parity";
 import { requireAgentSession } from "@/lib/server-auth";
+import { getSessionTenantIdentity } from "@/lib/tenant-identity";
 import { logger } from "@/lib/server-logger";
 
 export const runtime = "nodejs";
@@ -48,6 +49,7 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   const { run } = access;
+  const authorizedTenant = getSessionTenantIdentity(session);
   if (!run.user_id || !run.pergunta ||
       (!run.sql_generated && !run.sql_executed)) {
     return NextResponse.json(
@@ -69,7 +71,10 @@ export async function GET(request: Request, context: RouteContext) {
       question: run.pergunta,
       officialSql,
       officialIntent: run.detected_intent,
-      originalUserId: run.user_id!
+      originalUserId: run.user_id!,
+      ...(authorizedTenant.status === "ready"
+        ? { organizationId: authorizedTenant.organizationId }
+        : {})
     });
     if (result.status === "ok") {
       const provider_identity_status = assessRecordedProviderIdentity({
