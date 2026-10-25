@@ -61,6 +61,30 @@ describe("Shadow pre-activation diagnostics", () => {
       "n8n.example.test", "127.0.0.1"]) expect(text).not.toContain(secret);
   });
 
+  it("reports an invalid canary structurally without exposing its allowlist", async () => {
+    vi.stubEnv("LANGGRAPH_SHADOW_ENABLED", "true");
+    vi.stubEnv("LANGGRAPH_SHADOW_TRANSPORT", "n8n");
+    vi.stubEnv("LANGGRAPH_SHADOW_N8N_WEBHOOK_URL",
+      "https://n8n.example.test/webhook/langgraph-shadow-parallel-v1");
+    vi.stubEnv("N8N_SHADOW_WEBHOOK_TOKEN", "synthetic-shadow-secret");
+    vi.stubEnv("LANGGRAPH_S2S_TOKEN", "synthetic-s2s-secret");
+    vi.stubEnv("LANGGRAPH_SHADOW_CANARY_SUBJECTS_JSON", "not-json");
+    vi.stubEnv("LANGGRAPH_SHADOW_CANARY_EXPIRES_AT", "2099-01-01T00:00:00Z");
+    const { GET } = await import("@/app/api/admin/orchestration-diagnostics/route");
+    const response = await GET();
+    const body = await response.json();
+    expect(body.langgraph_shadow).toMatchObject({
+      enabled: true,
+      canary_status: "invalid",
+      canary_ready: false,
+      dispatch_ready: false
+    });
+    expect(body.langgraph_shadow.blockers).toContain("canary_invalid");
+    const text = JSON.stringify(body);
+    for(const sensitive of ["not-json", "synthetic-shadow-secret", "n8n.example.test"])
+      expect(text).not.toContain(sensitive);
+  });
+
   it("refuses Shadow metadata to profiles without audit capability", async () => {
     mocks.getProfilePolicy.mockResolvedValue({
       can_manage_users: false, can_view_all_runs: false

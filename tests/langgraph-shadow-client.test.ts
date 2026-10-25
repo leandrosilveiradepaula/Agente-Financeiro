@@ -12,14 +12,17 @@ const enabledEnv = {
   LANGGRAPH_SHADOW_ENABLED: "true",
   LANGGRAPH_INTERNAL_BASE_URL: "http://127.0.0.1:8000",
   LANGGRAPH_SHADOW_TIMEOUT_MS: "1500",
-  LANGGRAPH_S2S_TOKEN: "test-s2s-token"
+  LANGGRAPH_S2S_TOKEN: "test-s2s-token",
+  LANGGRAPH_SHADOW_CANARY_SUBJECTS_JSON:
+    '[{"user_id":"11111111-1111-4111-8111-111111111111"}]',
+  LANGGRAPH_SHADOW_CANARY_EXPIRES_AT: "2099-01-01T00:00:00Z"
 };
 
 const baseInput = {
   agentRunId: "11111111-1111-4111-8111-111111111111",
   question: "Qual foi o resultado por marca?",
   principal: {
-    id: "user-1",
+    id: "11111111-1111-4111-8111-111111111111",
     email: "user@example.com",
     profile: "admin"
   },
@@ -491,14 +494,14 @@ describe("LangGraph shadow client", () => {
   it("normalizes the principal without session internals", () => {
     const session: AgentSession = {
       sessionId: "session-secret-like-id",
-      userId: "user-1",
+      userId: "11111111-1111-4111-8111-111111111111",
       name: "User One",
       email: "user@example.com",
       userProfile: "admin"
     };
 
     expect(buildLangGraphShadowPrincipal(session)).toEqual({
-      id: "user-1",
+      id: "11111111-1111-4111-8111-111111111111",
       email: "user@example.com",
       profile: "admin"
     });

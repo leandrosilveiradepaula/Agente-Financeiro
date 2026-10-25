@@ -18,7 +18,8 @@ import { logger } from "@/lib/server-logger";
 import {
   buildLangGraphShadowPrincipal,
   dispatchLangGraphExecuteApprovedShadow,
-  isLangGraphShadowEnabled
+  isLangGraphShadowEnabled,
+  isLangGraphShadowCanaryEligible
 } from "@/lib/langgraph-shadow-client";
 import type { ExecuteWatsonResponse } from "@/lib/types";
 import { normalizeWatsonResult } from "@/lib/watson-result-normalization";
@@ -401,6 +402,10 @@ export async function POST(request: Request) {
       const principal = buildLangGraphShadowPrincipal(session);
       if (!principal) {
         logger.warn("execute_watson.langgraph_shadow_tenant_identity_missing", {
+          requestId, agentRunId
+        });
+      } else if (!isLangGraphShadowCanaryEligible(principal).allowed) {
+        logger.warn("execute_watson.langgraph_shadow_canary_denied", {
           requestId, agentRunId
         });
       } else after(async () => {

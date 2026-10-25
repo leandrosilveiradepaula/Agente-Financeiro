@@ -19,6 +19,12 @@ export type LangGraphShadowPrincipal = {
   organization_id?: string;
 };
 
+type ShadowCanarySubject = { user_id: string; organization_id?: string };
+type ShadowCanaryStatus = "unconfigured" | "invalid" | "expired" | "ready";
+type ShadowCanaryEvaluation = { status: ShadowCanaryStatus; allowed: boolean };
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+
 export type LangGraphShadowCorrelationMetadata = {
   source: "nextjs_bff";
   event: ShadowEvent;
@@ -78,7 +84,31 @@ export type ShadowDispatchBlocker =
   | "already_official"
   | "unsupported_transport"
   | "generate_target_unconfigured"
-  | "execute_target_unconfigured";
+  | "execute_target_unconfigured"
+  | "canary_unconfigured"
+  | "canary_invalid"
+  | "canary_expired";
+
+export function inspectLangGraphShadowCanaryConfiguration(
+  env: ShadowEnv = process.env,
+  now: () => Date = () => new Date()
+) {
+  return { status: evaluateShadowCanaryPolicy(env, now).status };
+}
+
+export function isLangGraphShadowCanaryEligible(
+  principal: LangGraphShadowPrincipal,
+  env: ShadowEnv = process.env,
+  now: () => Date = () => new Date()
+): ShadowCanaryEvaluation {
+  const policy = parseShadowCanaryPolicy(env, now);
+  if (!policy) return { status: evaluateShadowCanaryPolicy(env, now).status, allowed: false };
+  const allowed = policy.subjects.some((subject) =>
+    subject.user_id === principal.id &&
+    (subject.organization_id === undefined || subject.organization_id === principal.organization_id)
+  );
+  return { status: "ready", allowed };
+}
 
 // Local configuration only: this is NOT a probe of n8n, LLM execution or
 // correlated evidence. Restrict to status booleans and structural reason codes.
@@ -99,11 +129,15 @@ export function inspectLangGraphShadowDispatchConfiguration(
   if (!supported) blockers.push("unsupported_transport");
   if (!generateTargetConfigured) blockers.push("generate_target_unconfigured");
   if (!executeTargetConfigured) blockers.push("execute_target_unconfigured");
+  const canary = inspectLangGraphShadowCanaryConfiguration(env);
+  if (enabled && canary.status !== "ready") blockers.push(`canary_${canary.status}` as ShadowDispatchBlocker);
   return {
     enabled,
     transport: supported ? transportValue : "unsupported",
     generate_target_configured: generateTargetConfigured,
     execute_target_configured: executeTargetConfigured,
+    canary_status: canary.status,
+    canary_ready: canary.status === "ready",
     dispatch_ready: blockers.length === 0,
     blockers
   };
@@ -116,7 +150,7 @@ export function isLangGraphShadowDispatchConfigured(env: ShadowEnv = process.env
   const readiness = inspectLangGraphShadowDispatchConfiguration(env);
   return readiness.enabled &&
     !readiness.blockers.includes("already_official") &&
-    readiness.generate_target_configured;
+    readiness.generate_target_configured && readiness.canary_ready;
 }
 
 export function buildLangGraphShadowPrincipal(
@@ -192,6 +226,13 @@ async function dispatchLangGraphShadow(
     return { status: "disabled" };
   }
 
+  const principal = isRecord(payload) && isRecord(payload.principal)
+    ? payload.principal as LangGraphShadowPrincipal
+    : null;
+  if (!principal || !isLangGraphShadowCanaryEligible(principal, env).allowed) {
+    return { status: "configuration_error" };
+  }
+
   const target = dispatchTarget(env, path);
   if (!target) return sanitizedFailure("configuration_error");
 
@@ -265,6 +306,43 @@ async function dispatchLangGraphShadow(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function evaluateShadowCanaryPolicy(env: ShadowEnv, now: () => Date): ShadowCanaryEvaluation {
+  const policy = parseShadowCanaryPolicy(env, now);
+  if (policy) return { status: "ready", allowed: false };
+  const raw = env.LANGGRAPH_SHADOW_CANARY_SUBJECTS_JSON?.trim();
+  const expiresAt = env.LANGGRAPH_SHADOW_CANARY_EXPIRES_AT?.trim();
+  if (!raw || !expiresAt) return { status: "unconfigured", allowed: false };
+  const expiry = parseCanaryExpiry(expiresAt);
+  return { status: expiry !== null && expiry.getTime() <= now().getTime() ? "expired" : "invalid", allowed: false };
+}
+
+function parseShadowCanaryPolicy(env: ShadowEnv, now: () => Date): { subjects: ShadowCanarySubject[] } | null {
+  const raw = env.LANGGRAPH_SHADOW_CANARY_SUBJECTS_JSON?.trim();
+  const expiry = parseCanaryExpiry(env.LANGGRAPH_SHADOW_CANARY_EXPIRES_AT?.trim());
+  if (!raw || !expiry || expiry.getTime() <= now().getTime()) return null;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!Array.isArray(value) || value.length === 0) return null;
+    const subjects = value.map((item): ShadowCanarySubject | null => {
+      if (!isRecord(item) || !UUID.test(String(item.user_id))) return null;
+      const organizationId = item.organization_id;
+      if (organizationId !== undefined && (typeof organizationId !== "string" || !UUID.test(organizationId))) return null;
+      if (Object.keys(item).some((key) => key !== "user_id" && key !== "organization_id")) return null;
+      return organizationId === undefined
+        ? { user_id: item.user_id as string }
+        : { user_id: item.user_id as string, organization_id: organizationId };
+    });
+    return subjects.every((subject): subject is ShadowCanarySubject => subject !== null)
+      ? { subjects } : null;
+  } catch { return null; }
+}
+
+function parseCanaryExpiry(value: string | undefined): Date | null {
+  if (!value || !RFC3339.test(value)) return null;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
 }
 
 function buildCorrelationMetadata({

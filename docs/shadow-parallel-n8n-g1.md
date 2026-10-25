@@ -84,6 +84,29 @@ interrompe novos disparos; não modifica n8n oficial nem cancela automaticamente
 execuções Shadow já aceitas. Qualquer mudança de produção, credencial,
 publicação do n8n ou ativação do Shadow exige autorização separada.
 
+## Canário de identidade e prazo
+
+Mesmo com `LANGGRAPH_SHADOW_ENABLED=true`, o Produto não despacha Shadow sem
+uma política de canário server-only válida. Configure somente depois de uma
+aprovação operacional separada, usando placeholders revisados e nunca e-mail,
+nome, pergunta, header ou dados do browser:
+
+```text
+LANGGRAPH_SHADOW_CANARY_SUBJECTS_JSON=[{"user_id":"<uuid>"}]
+LANGGRAPH_SHADOW_CANARY_EXPIRES_AT=2030-01-01T00:00:00Z
+```
+
+Cada sujeito pode conter também `organization_id` UUID; nesse caso ambos devem
+coincidir exatamente com a sessão autenticada persistida. A lista vazia, JSON
+malformado, UUID inválido, tenant divergente, expiração inválida ou prazo
+vencido bloqueiam todas as chamadas. Não existe fallback para a flag global.
+`LANGGRAPH_SHADOW_ENABLED=false` continua sendo a reversão imediata.
+
+O diagnóstico administrativo mostra somente o estado estrutural do canário
+(`unconfigured`, `invalid`, `expired` ou `ready`), nunca sujeitos, organizações,
+tokens ou URLs. `canary_ready` é apenas prontidão local de configuração: não
+prova conectividade, envio, geração, evidência, modelo ou paridade.
+
 ## Preparação da integração Produto -> n8n (levantamento 2026-10-22)
 
 - A Demo Vercel foi observada READY no SHA `687447c8314d6706d9853fc595a262316afeb3ca` da branch `demo/grupo-horizonte`. READY não equivale a CI ou Shadow ativo.
