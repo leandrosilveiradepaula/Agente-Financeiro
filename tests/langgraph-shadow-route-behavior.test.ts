@@ -17,6 +17,7 @@ const routeMocks = vi.hoisted(() => ({
   enforceSqlTablePolicy: vi.fn(),
   buildPolicyDeniedResponse: vi.fn(),
   isLangGraphShadowEnabled: vi.fn(),
+  isLangGraphShadowCanaryEligible: vi.fn(),
   buildLangGraphShadowPrincipal: vi.fn(),
   dispatchLangGraphGenerateShadow: vi.fn(),
   dispatchLangGraphExecuteApprovedShadow: vi.fn(),
@@ -74,6 +75,7 @@ vi.mock("@/lib/server-logger", () => ({
 
 vi.mock("@/lib/langgraph-shadow-client", () => ({
   isLangGraphShadowEnabled: routeMocks.isLangGraphShadowEnabled,
+  isLangGraphShadowCanaryEligible: routeMocks.isLangGraphShadowCanaryEligible,
   buildLangGraphShadowPrincipal: routeMocks.buildLangGraphShadowPrincipal,
   dispatchLangGraphGenerateShadow: routeMocks.dispatchLangGraphGenerateShadow,
   dispatchLangGraphExecuteApprovedShadow:
@@ -102,6 +104,7 @@ function resetRouteMocks() {
   vi.stubEnv("N8N_INTERNAL_WEBHOOK_TOKEN", "test-token");
   routeMocks.afterCallbacks.length = 0;
   routeMocks.loggerWarn.mockReset();
+  routeMocks.isLangGraphShadowCanaryEligible.mockReset();
   routeMocks.requireAgentSession.mockResolvedValue({ session, response: null });
   routeMocks.getRequestMetadata.mockResolvedValue({
     ipAddress: "127.0.0.1",
@@ -144,6 +147,7 @@ function resetRouteMocks() {
     message: "Ação bloqueada pela política do perfil."
   });
   routeMocks.isLangGraphShadowEnabled.mockReturnValue(false);
+  routeMocks.isLangGraphShadowCanaryEligible.mockReturnValue({ status: "ready", allowed: true });
   routeMocks.buildLangGraphShadowPrincipal.mockReturnValue({
     id: "user-1",
     email: "user@example.com",
@@ -242,6 +246,40 @@ async function readExecuteResponse(enabled: boolean) {
 }
 
 describe("LangGraph shadow route behavior", () => {
+  it("keeps the official generate response and schedules no Shadow work for a denied canary", async () => {
+    const baseline = await readGenerateResponse(false);
+    resetRouteMocks();
+    routeMocks.isLangGraphShadowEnabled.mockReturnValue(true);
+    routeMocks.isLangGraphShadowCanaryEligible.mockReturnValue({ status: "ready", allowed: false });
+    vi.stubGlobal("fetch", mockOfficialGenerateFetch());
+    const { POST } = await import("@/app/api/generate-sql/route");
+    const response = await POST(new Request("http://localhost/api/generate-sql", {
+      method: "POST", body: JSON.stringify({ pergunta: "Pergunta de teste" })
+    }));
+    expect(await response.json()).toEqual(baseline.body);
+    expect(routeMocks.afterCallbacks).toHaveLength(0);
+    expect(routeMocks.dispatchLangGraphGenerateShadow).not.toHaveBeenCalled();
+    expect(routeMocks.recordShadowDispatchReceipt).not.toHaveBeenCalled();
+  });
+
+  it("keeps approved execution official and schedules no Shadow work for a denied canary", async () => {
+    const baseline = await readExecuteResponse(false);
+    resetRouteMocks();
+    routeMocks.isLangGraphShadowEnabled.mockReturnValue(true);
+    routeMocks.isLangGraphShadowCanaryEligible.mockReturnValue({ status: "ready", allowed: false });
+    vi.stubGlobal("fetch", mockOfficialExecuteFetch());
+    const { POST } = await import("@/app/api/execute-watson/route");
+    const response = await POST(new Request("http://localhost/api/execute-watson", {
+      method: "POST", body: JSON.stringify({
+        pergunta: "Pergunta de teste", agent_run_id: agentRunId,
+        sql: "SELECT 1"
+      })
+    }));
+    expect(await response.json()).toEqual(baseline.body);
+    expect(routeMocks.afterCallbacks).toHaveLength(0);
+    expect(routeMocks.dispatchLangGraphExecuteApprovedShadow).not.toHaveBeenCalled();
+    expect(routeMocks.recordShadowDispatchReceipt).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     resetRouteMocks();
   });

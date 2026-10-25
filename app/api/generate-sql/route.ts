@@ -36,7 +36,8 @@ import { logger } from "@/lib/server-logger";
 import {
   buildLangGraphShadowPrincipal,
   dispatchLangGraphGenerateShadow,
-  isLangGraphShadowEnabled
+  isLangGraphShadowEnabled,
+  isLangGraphShadowCanaryEligible
 } from "@/lib/langgraph-shadow-client";
 import { AGENT_VERSION, type GenerateSqlResponse } from "@/lib/types";
 import { isShadowPhaseOneProviderMatch } from "@/lib/shadow-phase-gate";
@@ -988,6 +989,10 @@ export async function POST(request: Request) {
       const principal = buildLangGraphShadowPrincipal(session);
       if (!principal) {
         logger.warn("generate_sql.langgraph_shadow_tenant_identity_missing", {
+          requestId, agentRunId: agentRun.id
+        });
+      } else if (!isLangGraphShadowCanaryEligible(principal).allowed) {
+        logger.warn("generate_sql.langgraph_shadow_canary_denied", {
           requestId, agentRunId: agentRun.id
         });
       } else after(async () => {
