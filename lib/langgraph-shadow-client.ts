@@ -191,6 +191,34 @@ export async function dispatchLangGraphGenerateShadow(
   );
 }
 
+/**
+ * Isolated P2 generation-only opt-in. The regular Product Shadow flag stays
+ * disabled, so the legacy official generate route is never activated here.
+ * This transport deliberately cannot reach execute-approved or the direct S2S
+ * endpoint. User/organization canary policy is still enforced by dispatch.
+ */
+export async function dispatchLangGraphP2GenerateOnly(
+  input: DispatchGenerateShadowInput,
+  options: LangGraphShadowClientOptions = {}
+): Promise<LangGraphShadowDispatchResult> {
+  const env = options.env ?? process.env;
+  if (env.LANGGRAPH_P2_GENERATE_ONLY_ENABLED?.trim().toLowerCase() !== "true") {
+    return { status: "disabled" };
+  }
+  if (env.LANGGRAPH_SHADOW_TRANSPORT?.trim() !== "n8n" ||
+      env.LANGGRAPH_OFFICIAL_VIA_N8N?.trim().toLowerCase() === "true") {
+    return { status: "configuration_error" };
+  }
+
+  // This per-call view does not modify process.env or enable the official
+  // Product Shadow flow. P2 requires its own explicit flag plus the existing
+  // subject/organization/expiry canary and authenticated relay credential.
+  return dispatchLangGraphGenerateShadow(input, {
+    ...options,
+    env: { ...env, LANGGRAPH_SHADOW_ENABLED: "true" }
+  });
+}
+
 export async function dispatchLangGraphExecuteApprovedShadow(
   input: DispatchExecuteApprovedShadowInput,
   options: LangGraphShadowClientOptions = {}
