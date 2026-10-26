@@ -31,6 +31,7 @@ import {
   enforceIntentPolicy,
   enforceSqlTablePolicy
 } from "@/lib/profile-policy";
+import { handleP2GenerateOnly } from "@/lib/p2-generate-only";
 import { getRequestMetadata, requireAgentSession } from "@/lib/server-auth";
 import { logger } from "@/lib/server-logger";
 import {
@@ -378,6 +379,14 @@ export async function POST(request: Request) {
       )
     );
   }
+  // Explicit admin-only generate-only P2 trial: never calls the official
+  // n8n SQL webhook, unlike the normal Demo generation path below.
+  // This opt-in is independent of LANGGRAPH_SHADOW_ENABLED, remains
+  // default-off and preserves the accepted /api/generate-sql relay lineage.
+  if (request.headers.get("x-agent-p2-generate-only") === "true") {
+    return handleP2GenerateOnly(request, session, requestId);
+  }
+
   const tenant = getSessionTenantIdentity(session);
   if (tenant.status === "required") {
     return buildErrorResponse("Identidade organizacional não configurada para esta sessão.", 403);

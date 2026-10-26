@@ -3,6 +3,7 @@ import {
   buildLangGraphShadowPrincipal,
   dispatchLangGraphExecuteApprovedShadow,
   dispatchLangGraphGenerateShadow,
+  dispatchLangGraphP2GenerateOnly,
   isLangGraphShadowDispatchConfigured,
   inspectLangGraphShadowDispatchConfiguration
 } from "@/lib/langgraph-shadow-client";
@@ -676,5 +677,68 @@ describe("LangGraph shadow client", () => {
     );
 
     expect(readRequestBody(fetchImpl).approved_sql).toBe(approvedSql);
+  });
+});
+
+describe("P2 generation-only transport gate", () => {
+  const p2 = {
+    ...enabledEnv,
+    VERCEL: "1",
+    LANGGRAPH_SHADOW_ENABLED: "false",
+    LANGGRAPH_P2_GENERATE_ONLY_ENABLED: "true",
+    LANGGRAPH_SHADOW_TRANSPORT: "n8n",
+    LANGGRAPH_SHADOW_N8N_WEBHOOK_URL:
+      "https://n8n.example.test/webhook/langgraph-shadow-parallel-v1",
+    N8N_SHADOW_WEBHOOK_TOKEN: "synthetic-token-p2"
+  };
+
+  it("stays off without the separate opt-in, regardless of the global flag", async () => {
+    const fetchImpl = vi.fn();
+    const result = await dispatchLangGraphP2GenerateOnly(baseInput, {
+      env: { ...p2, LANGGRAPH_P2_GENERATE_ONLY_ENABLED: "false" },
+      fetchImpl
+    });
+    expect(result.status).toBe("disabled");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects direct or official LangGraph transports without a network call", async () => {
+    const fetchImpl = vi.fn();
+    for (const env of [
+      { ...p2, LANGGRAPH_SHADOW_TRANSPORT: "direct" },
+      { ...p2, LANGGRAPH_OFFICIAL_VIA_N8N: "true" }
+    ]) {
+      expect((await dispatchLangGraphP2GenerateOnly(baseInput, { env, fetchImpl })).status)
+        .toBe("configuration_error");
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("sends the same generate-only relay envelope while global Shadow remains disabled", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true, status: 202, text: async () => JSON.stringify({
+        contract_version: "1",
+        accepted: true,
+        agent_run_id: baseInput.agentRunId,
+        event: "generate"
+      })
+    } as Response);
+    const sent = await dispatchLangGraphP2GenerateOnly(baseInput, { env: p2, fetchImpl });
+    expect(sent).toEqual({ status: "sent", httpStatus: 202 });
+    const payload = readRequestBody(fetchImpl);
+    expect(payload.question).toBe(baseInput.question);
+    expect(payload).not.toHaveProperty("approved_sql");
+    expect((payload.correlation_metadata as Record<string, unknown>).route).toBe("/api/generate-sql");
+    expect(p2.LANGGRAPH_SHADOW_ENABLED).toBe("false");
+  });
+
+  it("preserves strict user/organization expiry canary checks", async () => {
+    const fetchImpl = vi.fn();
+    const result = await dispatchLangGraphP2GenerateOnly(baseInput, {
+      env: { ...p2, LANGGRAPH_SHADOW_CANARY_EXPIRES_AT: "2001-01-01T00:00:00Z" },
+      fetchImpl
+    });
+    expect(result.status).toBe("configuration_error");
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
