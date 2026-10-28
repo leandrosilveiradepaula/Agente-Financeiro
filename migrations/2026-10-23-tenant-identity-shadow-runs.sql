@@ -39,6 +39,43 @@ CREATE INDEX IF NOT EXISTS idx_ai_agent_runs_organization_created_at
   ON public.ai_agent_runs (organization_id, created_at DESC)
   WHERE organization_id IS NOT NULL;
 
+
+-- Product reads these catalog/association tables through its authenticated
+-- server-side PostgreSQL connection, never directly from a browser/Data API.
+-- Supabase projects may grant ALL on new public tables to anon/authenticated
+-- by default. Keep organizations and memberships private even on those
+-- projects and independently of deployment-time tenant feature flags.
+ALTER TABLE public.ai_agent_organizations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_agent_user_organizations ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE
+  public.ai_agent_organizations,
+  public.ai_agent_user_organizations
+  FROM PUBLIC;
+
+-- Portably revoke any pre-existing Supabase Data API role grants without
+-- requiring the roles to exist in plain PostgreSQL installations.
+DO $tenant_acl$
+DECLARE
+  api_role text;
+BEGIN
+  FOR api_role IN
+    SELECT rolname
+    FROM pg_catalog.pg_roles
+    WHERE rolname IN ('anon', 'authenticated', 'service_role')
+  LOOP
+    EXECUTE format(
+      'REVOKE ALL ON TABLE public.ai_agent_organizations, public.ai_agent_user_organizations FROM %I',
+      api_role
+    );
+  END LOOP;
+END
+$tenant_acl$;
+
+-- Deliberately no permissive RLS policies: only the server-side database
+-- owner can manage memberships. Neither a JWT nor a browser request may
+-- assign, enumerate, or modify an organization.
+
 COMMIT;
 
 -- Rollback (manual, after disabling AGENT_TENANT_IDENTITY_ENABLED and after a
