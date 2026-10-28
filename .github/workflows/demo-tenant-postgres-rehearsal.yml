@@ -78,9 +78,55 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -f migrations/2026-07-08-agent-runs.sql
       - name: Seed a historical unassigned run before migration
         run: psql -X -v ON_ERROR_STOP=1 -f scripts/validation/seed_tenant_legacy_fixture.sql
+      - name: Simulate Supabase default grants on new public tables
+        run: |
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE anon NOLOGIN;
+          CREATE ROLE authenticated NOLOGIN;
+          CREATE ROLE service_role NOLOGIN;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tenant_ci IN SCHEMA public
+            GRANT ALL ON TABLES TO anon, authenticated, service_role;
+          SQL
       - name: Apply migration twice only to the disposable CI database
         run: |
           psql -X -v ON_ERROR_STOP=1 -f migrations/2026-10-23-tenant-identity-shadow-runs.sql
           psql -X -v ON_ERROR_STOP=1 -f migrations/2026-10-23-tenant-identity-shadow-runs.sql
+      - name: Prove tenant organization tables are not exposed to Data API roles
+        run: |
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          DO $security$
+          DECLARE
+            table_name text;
+            api_role text;
+            record_oid oid;
+          BEGIN
+            FOREACH table_name IN ARRAY ARRAY['ai_agent_organizations', 'ai_agent_user_organizations'] LOOP
+              SELECT c.oid INTO record_oid
+              FROM pg_catalog.pg_class c
+              JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+              WHERE n.nspname='public' AND c.relname=table_name AND c.relrowsecurity;
+              IF record_oid IS NULL THEN
+                RAISE EXCEPTION 'TENANT_RLS_DISABLED: %', table_name;
+              END IF;
+              FOREACH api_role IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
+                IF has_table_privilege(api_role, record_oid, 'SELECT')
+                   OR has_table_privilege(api_role, record_oid, 'INSERT')
+                   OR has_table_privilege(api_role, record_oid, 'UPDATE')
+                   OR has_table_privilege(api_role, record_oid, 'DELETE')
+                   OR has_table_privilege(api_role, record_oid, 'TRUNCATE') THEN
+                  RAISE EXCEPTION 'TENANT_TABLE_PUBLIC_ACL: % %', api_role, table_name;
+                END IF;
+              END LOOP;
+            END LOOP;
+          END
+          $security$;
+          SQL
+          for role in anon authenticated service_role; do
+            if psql -X -v ON_ERROR_STOP=1 -c "SET ROLE ${role}; SELECT count(*) FROM public.ai_agent_user_organizations;" >/dev/null 2>&1; then
+              echo "Unexpected membership read by ${role}" >&2
+              exit 1
+            fi
+          done
+          echo "TENANT_MEMBERSHIP_PUBLIC_ACCESS=DENIED"
       - name: Test actual tenant sessions, memberships and run boundaries
         run: npm test -- tests/tenant-postgres-integration.test.ts
