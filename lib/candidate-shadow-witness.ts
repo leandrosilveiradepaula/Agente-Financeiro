@@ -159,3 +159,46 @@ export async function completeShadowWitness(input:WitnessConclusion):Promise<boo
   );
   return completed.rowCount===1;
 }
+
+
+// Recover the durable state across page reloads and devices. This is a
+// read-only, tenant/member-gated status projection, not execution control.
+// SQL, question, tokens and credentials are never returned to the UI.
+export type CandidateReviewProgress = {
+  request_id:string;
+  state:"pending_authorization";
+  witness_status:"pending"|"success"|"rejected"|"unavailable"|null;
+  requires_reapproval:boolean;
+  preflight_status:string|null;
+  langgraph_run_id:string|null;
+};
+export async function getCandidateReviewProgress(input:{
+  reviewId:string;organizationId:string;actorId:string;
+}):Promise<CandidateReviewProgress|null>{
+  if(![input.reviewId,input.organizationId,input.actorId].every(x=>UUID.test(x)))return null;
+  const result=await db.query<CandidateReviewProgress>([
+    "SELECT req.id AS request_id,req.state,",
+    " w.status AS witness_status,",
+    " coalesce(w.requires_reapproval,false) AS requires_reapproval,",
+    " w.preflight_status,w.langgraph_run_id",
+    "FROM public.ai_agent_candidate_sql_reviews review",
+    "JOIN public.ai_agent_candidate_execution_requests req",
+    " ON req.review_id=review.id",
+    " AND req.organization_id=review.organization_id",
+    " AND req.binding_sha256=review.binding_sha256",
+    "JOIN public.ai_agent_organizations org",
+    " ON org.id=review.organization_id AND org.is_active",
+    "JOIN public.ai_agent_user_organizations membership",
+    " ON membership.organization_id=org.id",
+    " AND membership.user_id=$3::uuid AND membership.is_active",
+    "JOIN public.ai_agent_users actor",
+    " ON actor.id=membership.user_id AND actor.is_active",
+    "LEFT JOIN public.ai_agent_candidate_shadow_witnesses w",
+    " ON w.execution_request_id=req.id",
+    " AND w.organization_id=req.organization_id",
+    "WHERE review.id=$1::uuid AND review.organization_id=$2::uuid",
+    " AND review.review_status='approved'",
+    "LIMIT 1"
+  ].join(" "),[input.reviewId,input.organizationId,input.actorId]);
+  return result.rows[0]??null;
+}
