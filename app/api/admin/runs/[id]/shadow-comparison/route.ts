@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assessRecordedOfficialSqlRunOrigin } from "@/lib/official-sql-run-origin";
 import { authorizeAdminRunReadAccess } from "@/lib/admin-run-access";
 import {
   compareLangGraphShadowSql,
@@ -49,6 +50,9 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   const { run } = access;
+  if (assessRecordedOfficialSqlRunOrigin(run) !== "recorded_official_path") {
+    return NextResponse.json({ success: false, error: "official_origin_unverified" }, { status: 409 });
+  }
   const authorizedTenant = getSessionTenantIdentity(session);
   if (!run.user_id || !run.pergunta ||
       (!run.sql_generated && !run.sql_executed)) {
