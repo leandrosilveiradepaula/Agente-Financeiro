@@ -19,7 +19,34 @@ type Review = {
   decided_at: string | null;
   created_at: string;
 };
-type ReviewResponse = { success?: boolean; review?: Review; error?: string };
+type CandidateProgress = {
+  request_id:string;
+  state:"pending_authorization";
+  witness_status:"pending"|"success"|"rejected"|"unavailable"|null;
+  requires_reapproval:boolean;
+  preflight_status:string|null;
+  langgraph_run_id:string|null;
+};
+type ReviewResponse = {
+  success?:boolean;review?:Review;error?:string;
+  progress?:CandidateProgress|null;
+};
+function witnessProgressMessage(progress:CandidateProgress):string{
+  switch(progress.witness_status){
+    case "pending":
+      return "Validação Shadow iniciada. Não é permitido reenviar; concilie a evidência antes de nova proposta.";
+    case "success":
+      return "Preflight Shadow aprovado. Nenhuma SQL financeira foi executada ou autorizada.";
+    case "rejected":
+      return progress.requires_reapproval
+        ? "Reparo proposto pelo Shadow: nova geração e aprovação humana obrigatórias."
+        : "Preflight Shadow rejeitado; SQL não executada.";
+    case "unavailable":
+      return "Resultado Shadow indisponível: reconciliação humana obrigatória, sem reenvio automático.";
+    default:
+      return "";
+  }
+}
 export default function CandidateReviewPage({
   params
 }: { params: Promise<{ id: string }> }) {
@@ -42,7 +69,13 @@ export default function CandidateReviewPage({
     }).then((data) => {
       if (active) {
         if (!data.success || !data.review) setError("Proposta não encontrada.");
-        else setReview(data.review);
+        else {
+          setReview(data.review);
+          if(data.progress?.request_id){
+            setExecutionIntent(data.progress.request_id);
+            setShadowWitnessStatus(witnessProgressMessage(data.progress));
+          }
+        }
       }
     }).catch(() => {
       if (active) setError("Falha ao carregar a revisão.");
