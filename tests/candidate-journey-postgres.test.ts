@@ -134,6 +134,12 @@ candidateDb("real operator onboarding and Execute Approved intent (no execution)
       decision:"approved",expectedBindingSha256:bindingSha
     });
     expect(approved?.status).toBe("approved");
+    expect(await review.getCandidateReview({
+      id:reviewId,organizationId,actorId:FOREIGN
+    })).toBeNull();
+    expect((await review.getCandidateReview({
+      id:reviewId,organizationId,actorId:ADMIN_B
+    }))?.review_status).toBe("approved");
   });
 
   it("rejects unapproved hash, wrong tenant, unauthorized principal and replay",async()=>{
