@@ -5,6 +5,7 @@ on:
     branches: [demo/grupo-horizonte]
     paths:
       - "migrations/**"
+      - "scripts/validation/legacy_agent_api_lockdown_smoke.sql"
       - "lib/candidate-sql-review.ts"
       - "scripts/validation/candidate_review_postgres_smoke.sql"
       - "lib/auth/session-service.ts"
@@ -22,6 +23,7 @@ on:
     branches: [demo/grupo-horizonte]
     paths:
       - "migrations/**"
+      - "scripts/validation/legacy_agent_api_lockdown_smoke.sql"
       - "lib/candidate-sql-review.ts"
       - "scripts/validation/candidate_review_postgres_smoke.sql"
       - "lib/auth/session-service.ts"
@@ -158,6 +160,8 @@ jobs:
             migrations/2026-09-03-base-auth-tables.sql \
             migrations/2026-07-08-agent-runs.sql \
             migrations/2026-07-09-agent-run-llm-usage.sql \
+            migrations/2026-07-08-account-audit-events.sql \
+            migrations/2026-07-08-profile-policies.sql \
             migrations/2026-07-08-admin-user-management.sql
           do
             PGDATABASE=tenant_candidate_ci_fixture psql -X -v ON_ERROR_STOP=1 -f "$file"
@@ -174,6 +178,38 @@ jobs:
             PGDATABASE=tenant_candidate_ci_fixture psql -X -v ON_ERROR_STOP=1 -f "$file"
           done
           test "$(PGDATABASE=tenant_candidate_ci_fixture psql -X -v ON_ERROR_STOP=1 -Atc 'SELECT current_database()')" = "tenant_candidate_ci_fixture"
+      - name: Simulate the exposed legacy Data API privileges seen in the real DEMO
+        run: |
+          PGDATABASE=tenant_candidate_ci_fixture psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          GRANT ALL ON TABLE
+            public.ai_agent_account_audit_events,
+            public.ai_agent_admin_audit_events,
+            public.ai_agent_auth_events,
+            public.ai_agent_profile_policies,
+            public.ai_agent_runs,
+            public.ai_agent_sessions,
+            public.ai_agent_users
+          TO anon, authenticated, service_role;
+          SQL
+          test "$(PGDATABASE=tenant_candidate_ci_fixture psql -X -v ON_ERROR_STOP=1 -Atc \
+            "SELECT has_table_privilege('anon','public.ai_agent_users','SELECT')")" = "t"
+      - name: Close API exposures twice and verify actual server and browser roles
+        run: |
+          PGDATABASE=tenant_candidate_ci_fixture psql -X -v ON_ERROR_STOP=1 \
+            -f migrations/2026-10-29-lockdown-legacy-agent-data-api.sql
+          PGDATABASE=tenant_candidate_ci_fixture psql -X -v ON_ERROR_STOP=1 \
+            -f migrations/2026-10-29-lockdown-legacy-agent-data-api.sql
+          PGDATABASE=tenant_candidate_ci_fixture psql -X -v ON_ERROR_STOP=1 \
+            -f scripts/validation/legacy_agent_api_lockdown_smoke.sql
+          for role in anon authenticated service_role; do
+            if PGDATABASE=tenant_candidate_ci_fixture psql -X -v ON_ERROR_STOP=1 \
+                 -c "SET ROLE ${role}; SELECT count(*) FROM public.ai_agent_users;" \
+                 >/dev/null 2>&1; then
+              echo "Unexpected legacy user SELECT by ${role}" >&2
+              exit 1
+            fi
+          done
+          echo "LEGACY_DATA_API_ACCESS=DENIED"
       - name: End-to-end real PostgreSQL tenant and human approval into execution intent (no financial SQL)
         env:
           CANDIDATE_DB_REHEARSAL: "true"
