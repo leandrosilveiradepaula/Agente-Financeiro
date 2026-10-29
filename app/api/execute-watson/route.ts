@@ -135,6 +135,13 @@ export async function POST(request: Request) {
     return errorResponse("Histórico de execução não pertence ao usuário logado.", 403);
   }
 
+  // Candidate SQL is NEVER executable via the legacy official n8n route.
+  // A recorded review decision is not an Execute Approved authorization.
+  // The future executor must use a separate, explicit, signed approval gate.
+  if (existingRun?.source === "candidate_langgraph_generate_only") {
+    return errorResponse("SQL candidata não pode ser executada pelo fluxo legado.", 409);
+  }
+
   const sql = receivedSql || existingRun?.sql_generated?.trim() || "";
 
   if (tenant.status === "ready" && receivedSql &&
