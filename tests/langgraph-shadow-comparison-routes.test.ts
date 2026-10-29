@@ -18,6 +18,8 @@ describe("Admin SQL comparison read boundary", () => {
   });
 
   it("only sends database-owned SQL and principal after authorization", () => {
+    expect(route).toContain("assessRecordedOfficialSqlRunOrigin(run)");
+    expect(route).toContain("official_origin_unverified");
     expect(route).toContain("compareStage(run.sql_generated)");
     expect(route).toContain("compareStage(run.sql_executed)");
     expect(route).toContain("question: run.pergunta");
