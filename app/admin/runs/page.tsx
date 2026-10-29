@@ -488,6 +488,14 @@ export default function AdminRunsPage() {
               </div>
             ) : null}
             <div className="flex flex-wrap gap-2 lg:justify-end">
+              {accountPolicy?.can_view_all_runs && accountPolicy?.can_view_sql ? (
+                <Link
+                  href="/admin/runs/parity-review"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-900"
+                >
+                  Avaliar n8n × LangGraph
+                </Link>
+              ) : null}
               <Link
                 href="/"
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-ink shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
