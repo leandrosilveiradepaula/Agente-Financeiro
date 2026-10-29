@@ -28,6 +28,7 @@ export default function CandidateReviewPage({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState("");
+  const [executionIntent, setExecutionIntent] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -78,6 +79,34 @@ export default function CandidateReviewPage({
     }
   }
 
+
+  async function requestAuthorization() {
+    if(!review || review.review_status!=="approved" || busy || executionIntent) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response=await fetch(
+        "/api/admin/candidate-reviews/"+encodeURIComponent(id)+"/execute-request",
+        {
+          method:"POST",cache:"no-store",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({binding_sha256:review.binding_sha256})
+        }
+      );
+      const data=await response.json() as {
+        success?:boolean;request_id?:string;state?:string;error?:string;
+      };
+      if(!response.ok||!data.success||!data.request_id||
+        data.state!=="pending_authorization") {
+        throw Error(data.error??"Solicitação não autorizada ou já registrada.");
+      }
+      setExecutionIntent(data.request_id);
+      setResult("Solicitação de autorização registrada. Nenhuma SQL foi executada.");
+    } catch(e) {
+      setError(e instanceof Error?e.message:"Solicitação indisponível.");
+    } finally {setBusy(false);}
+  }
+
   return (
     <main className="mx-auto max-w-5xl space-y-5 px-5 py-8 text-ink">
       <Link className="text-sm font-semibold text-lake underline"
@@ -112,9 +141,21 @@ export default function CandidateReviewPage({
               Rejeitar
             </button>
           </div>
+          {review.review_status==="approved" && (
+            <button type="button" disabled={busy || Boolean(executionIntent)}
+              onClick={()=>void requestAuthorization()}
+              className="rounded-md border border-blue-300 px-4 py-2 font-semibold disabled:opacity-50">
+              Solicitar autorização de execução (não executa SQL)
+            </button>
+          )}
+          {executionIntent&&(
+            <p className="font-mono text-xs">Solicitação pendente: {executionIntent}</p>
+          )}
           <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
-            Não existe botão de execução nesta tela. Mesmo uma proposta aprovada
-            não pode passar pelo executor legado. SQL reparada exige nova proposta.
+            Aprovação e solicitação são etapas distintas. Nenhuma delas
+            autoriza nem executa SQL financeira. A execução somente leitura
+            exigirá uma autorização operacional separada. SQL reparada
+            exige nova geração e nova aprovação.
           </p>
         </section>
       )}
