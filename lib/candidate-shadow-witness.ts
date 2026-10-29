@@ -14,6 +14,10 @@ export type WitnessClaim={
   agentRunId:string;
   bindingSha256:string;
   approvedSql:string; // never sent to browser/logs; private n8n only
+  generationRunId:string;
+  generationRequesterId:string;
+  generationContextVersion:string;
+  generationResponseFingerprint:string;
 };
 type ClaimedRow={
   witness_id:string;
@@ -113,7 +117,11 @@ export async function claimShadowWitness(input:{
     organizationId:row.organization_id,
     agentRunId:row.agent_run_id,
     bindingSha256:row.binding_sha256,
-    approvedSql:row.sql_text
+    approvedSql:row.sql_text,
+    generationRunId:row.langgraph_run_id,
+    generationRequesterId:row.requested_by,
+    generationContextVersion:row.context_version,
+    generationResponseFingerprint:row.response_fingerprint
   };
 }
 
