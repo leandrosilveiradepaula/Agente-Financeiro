@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  query: vi.fn(), auth: vi.fn(), policy: vi.fn(), tenant: vi.fn()
+  query: vi.fn(), auth: vi.fn(), policy: vi.fn(), tenant: vi.fn(), progress: vi.fn()
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db", () => ({ db: { query: mocks.query } }));
+vi.mock("@/lib/candidate-shadow-witness", () => ({ getCandidateReviewProgress: mocks.progress }));
 vi.mock("@/lib/server-auth", () => ({ requireAgentSession: mocks.auth }));
 vi.mock("@/lib/profile-policy", () => ({ getProfilePolicy: mocks.policy }));
 vi.mock("@/lib/tenant-identity", () => ({ getSessionTenantIdentity: mocks.tenant }));
@@ -32,6 +33,8 @@ const { persistCandidateReview, decideCandidateReview, getCandidateReview } =
 beforeEach(() => {
   vi.resetAllMocks();
   vi.stubEnv("AGENT_CANDIDATE_REVIEW_ENABLED","true");
+  vi.stubEnv("AGENT_CANDIDATE_EXECUTION_REQUEST_ENABLED","true");
+  mocks.progress.mockResolvedValue(null);
   mocks.auth.mockResolvedValue({session:{userId:reviewer,userProfile:"admin"},response:null});
   mocks.policy.mockResolvedValue({is_active:true,can_view_sql:true,can_execute_sql:true});
   mocks.tenant.mockReturnValue({status:"ready",organizationId:org});
@@ -83,7 +86,7 @@ describe("immutable SQL review ledger", () => {
   });
   it("reads only tenant-scoped persisted records",async()=>{
     mocks.query.mockResolvedValue({rowCount:1,rows:[{id:reviewId}]});
-    await getCandidateReview({id:reviewId,organizationId:org});
+    await getCandidateReview({id:reviewId,organizationId:org,actorId:reviewer});
     expect(mocks.query.mock.calls[0][0]).toContain("r.organization_id=$2::uuid");
   });
 });
