@@ -14,6 +14,8 @@ on:
       - "tests/tenant-postgres-integration.test.ts"
       - "lib/tenant-operator.ts"
       - "lib/candidate-execution-intent.ts"
+      - "lib/candidate-shadow-witness.ts"
+      - "app/api/admin/candidate-execution-requests/**"
       - "tests/candidate-journey-postgres.test.ts"
       - "app/api/admin/tenant/**"
       - "app/api/admin/candidate-reviews/**/execute-request/route.ts"
@@ -32,6 +34,8 @@ on:
       - "tests/tenant-postgres-integration.test.ts"
       - "lib/tenant-operator.ts"
       - "lib/candidate-execution-intent.ts"
+      - "lib/candidate-shadow-witness.ts"
+      - "app/api/admin/candidate-execution-requests/**"
       - "tests/candidate-journey-postgres.test.ts"
       - "app/api/admin/tenant/**"
       - "app/api/admin/candidate-reviews/**/execute-request/route.ts"
@@ -173,7 +177,8 @@ jobs:
           for file in \
             migrations/2026-10-23-tenant-identity-shadow-runs.sql \
             migrations/2026-10-29-candidate-sql-review-gates.sql \
-            migrations/2026-10-29-tenant-onboarding-and-execute-intent.sql
+            migrations/2026-10-29-tenant-onboarding-and-execute-intent.sql \
+            migrations/2026-10-29-candidate-shadow-witness.sql
           do
             PGDATABASE=tenant_candidate_ci_fixture psql -X -v ON_ERROR_STOP=1 -f "$file"
           done

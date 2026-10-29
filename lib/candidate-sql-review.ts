@@ -116,17 +116,19 @@ export async function persistCandidateReview(input: {
 }
 
 export async function getCandidateReview(input: {
-  id: string; organizationId: string; requesterId?: string;
+  id: string; organizationId: string; actorId: string;
 }): Promise<CandidateReview | null> {
-  if (!uuid.test(input.id) || !uuid.test(input.organizationId)) return null;
+  if (![input.id,input.organizationId,input.actorId].every(v=>uuid.test(v))) return null;
   const statement = [
     "SELECT r.* FROM public.ai_agent_candidate_sql_reviews r",
     "JOIN public.ai_agent_organizations o ON o.id=r.organization_id AND o.is_active",
-    "WHERE r.id=$1::uuid AND r.organization_id=$2::uuid",
-    "AND ($3::uuid IS NULL OR r.requested_by=$3::uuid) LIMIT 1"
+    "JOIN public.ai_agent_user_organizations m ON m.organization_id=o.id",
+    " AND m.user_id=$3::uuid AND m.is_active",
+    "JOIN public.ai_agent_users u ON u.id=m.user_id AND u.is_active",
+    "WHERE r.id=$1::uuid AND r.organization_id=$2::uuid LIMIT 1"
   ].join("\n");
   const result = await db.query<CandidateReview>(statement,
-    [input.id,input.organizationId,input.requesterId ?? null]);
+    [input.id,input.organizationId,input.actorId]);
   return result.rows[0] ?? null;
 }
 

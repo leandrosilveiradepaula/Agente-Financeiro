@@ -19,7 +19,34 @@ type Review = {
   decided_at: string | null;
   created_at: string;
 };
-type ReviewResponse = { success?: boolean; review?: Review; error?: string };
+type CandidateProgress = {
+  request_id:string;
+  state:"pending_authorization";
+  witness_status:"pending"|"success"|"rejected"|"unavailable"|null;
+  requires_reapproval:boolean;
+  preflight_status:string|null;
+  langgraph_run_id:string|null;
+};
+type ReviewResponse = {
+  success?:boolean;review?:Review;error?:string;
+  progress?:CandidateProgress|null;
+};
+function witnessProgressMessage(progress:CandidateProgress):string{
+  switch(progress.witness_status){
+    case "pending":
+      return "Validação Shadow iniciada. Não é permitido reenviar; concilie a evidência antes de nova proposta.";
+    case "success":
+      return "Preflight Shadow aprovado. Nenhuma SQL financeira foi executada ou autorizada.";
+    case "rejected":
+      return progress.requires_reapproval
+        ? "Reparo proposto pelo Shadow: nova geração e aprovação humana obrigatórias."
+        : "Preflight Shadow rejeitado; SQL não executada.";
+    case "unavailable":
+      return "Resultado Shadow indisponível: reconciliação humana obrigatória, sem reenvio automático.";
+    default:
+      return "";
+  }
+}
 export default function CandidateReviewPage({
   params
 }: { params: Promise<{ id: string }> }) {
@@ -29,6 +56,8 @@ export default function CandidateReviewPage({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState("");
   const [executionIntent, setExecutionIntent] = useState("");
+  const [shadowWitnessStatus, setShadowWitnessStatus] = useState("");
+  const [witnessBusy, setWitnessBusy] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -40,7 +69,13 @@ export default function CandidateReviewPage({
     }).then((data) => {
       if (active) {
         if (!data.success || !data.review) setError("Proposta não encontrada.");
-        else setReview(data.review);
+        else {
+          setReview(data.review);
+          if(data.progress?.request_id){
+            setExecutionIntent(data.progress.request_id);
+            setShadowWitnessStatus(witnessProgressMessage(data.progress));
+          }
+        }
       }
     }).catch(() => {
       if (active) setError("Falha ao carregar a revisão.");
@@ -107,6 +142,33 @@ export default function CandidateReviewPage({
     } finally {setBusy(false);}
   }
 
+  async function validateShadowWitness(){
+    if(!executionIntent||witnessBusy||shadowWitnessStatus)return;
+    setError("");setWitnessBusy(true);
+    try{
+      const response=await fetch(
+        "/api/admin/candidate-execution-requests/"+
+        encodeURIComponent(executionIntent)+"/shadow-validate",
+        {method:"POST",cache:"no-store",headers:{"Content-Type":"application/json"},body:"{}"}
+      );
+      const data=await response.json() as {
+        success?:boolean;witness_status?:string;
+        requires_reapproval?:boolean;error?:string;
+      };
+      if(!response.ok||!data.success){
+        throw Error(data.error??"Validação Shadow indisponível.");
+      }
+      const status=data.requires_reapproval
+        ?"Reparo proposto: precisa de nova geração e aprovação humana."
+        :data.witness_status==="success"
+          ?"SQL aprovada validada pelo Shadow. A execução financeira continua bloqueada."
+          :"Validação Shadow rejeitada. A SQL não foi executada.";
+      setShadowWitnessStatus(status);
+    }catch(e){
+      setError(e instanceof Error?e.message:"Validação indisponível.");
+    }finally{setWitnessBusy(false);}
+  }
+
   return (
     <main className="mx-auto max-w-5xl space-y-5 px-5 py-8 text-ink">
       <Link className="text-sm font-semibold text-lake underline"
@@ -151,6 +213,16 @@ export default function CandidateReviewPage({
           {executionIntent&&(
             <p className="font-mono text-xs">Solicitação pendente: {executionIntent}</p>
           )}
+          {executionIntent && !shadowWitnessStatus && (
+            <button type="button" disabled={witnessBusy}
+              onClick={()=>void validateShadowWitness()}
+              className="rounded-md border border-blue-300 px-4 py-2 text-sm font-semibold disabled:opacity-50">
+              {witnessBusy?"Validando no Shadow...":"Validar SQL no Shadow (não executa)"}
+            </button>
+          )}
+          {shadowWitnessStatus&&<p role="status" className="rounded-md border p-3 text-sm">
+            {shadowWitnessStatus}
+          </p>}
           <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
             Aprovação e solicitação são etapas distintas. Nenhuma delas
             autoriza nem executa SQL financeira. A execução somente leitura
