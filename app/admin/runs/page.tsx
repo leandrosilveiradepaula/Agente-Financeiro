@@ -488,6 +488,14 @@ export default function AdminRunsPage() {
               </div>
             ) : null}
             <div className="flex flex-wrap gap-2 lg:justify-end">
+              {loggedUser?.profile === "admin" ? (
+                <Link
+                  href="/admin/candidate-generate"
+                  className="inline-flex h-10 items-center justify-center rounded-md border border-amber-200 bg-amber-50 px-3 text-sm font-semibold text-amber-900"
+                >
+                  Gerar SQL candidata
+                </Link>
+              ) : null}
               {accountPolicy?.can_view_all_runs && accountPolicy?.can_view_sql ? (
                 <Link
                   href="/admin/runs/parity-review"
