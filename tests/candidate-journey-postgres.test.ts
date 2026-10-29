@@ -13,9 +13,11 @@ candidateDb("real operator onboarding and Execute Approved intent (no execution)
   let operator:typeof import("@/lib/tenant-operator");
   let review:typeof import("@/lib/candidate-sql-review");
   let intent:typeof import("@/lib/candidate-execution-intent");
+  let shadow:typeof import("@/lib/candidate-shadow-witness");
   let sessionId="";
   let organizationId="";
   let reviewId="";
+  let executionRequestId="";
   let bindingSha="";
   const candidateSql="SELECT 1";
   beforeAll(async()=>{
@@ -29,6 +31,7 @@ candidateDb("real operator onboarding and Execute Approved intent (no execution)
     operator=await import("@/lib/tenant-operator");
     review=await import("@/lib/candidate-sql-review");
     intent=await import("@/lib/candidate-execution-intent");
+    shadow=await import("@/lib/candidate-shadow-witness");
     await db.query([
       "INSERT INTO public.ai_agent_users",
       "(id,name,email,user_profile,password_hash) VALUES",
@@ -149,6 +152,7 @@ candidateDb("real operator onboarding and Execute Approved intent (no execution)
       review_id:reviewId,state:"pending_authorization",
       real_sql_executed:false,execution_authorized:false
     });
+    executionRequestId=received!.request_id;
     expect(await intent.requestExecuteApprovedIntent(base)).toBeNull();
     const row=await db.query<{
       state:string;count:string;execution_status:string;sql_executed:string|null;
@@ -170,6 +174,64 @@ candidateDb("real operator onboarding and Execute Approved intent (no execution)
       "SET state='pending_authorization' WHERE id=$1::uuid",
       [received!.request_id]
     )).rejects.toThrow("candidate_execution_request_immutable");
+  });
+
+  it("records exactly one tenant-approved Shadow witness without running SQL",async()=>{
+    expect(await shadow.claimShadowWitness({
+      requestId:executionRequestId,organizationId,actorId:FOREIGN
+    })).toBeNull();
+    expect(await shadow.claimShadowWitness({
+      requestId:executionRequestId,organizationId:BAD_ORG,actorId:ADMIN_B
+    })).toBeNull();
+    const claim=await shadow.claimShadowWitness({
+      requestId:executionRequestId,organizationId,actorId:ADMIN_B
+    });
+    expect(claim).toMatchObject({
+      agentRunId:RUN_ID,
+      executionRequestId,
+      organizationId,
+      bindingSha256:bindingSha,
+      approvedSql:candidateSql
+    });
+    expect(await shadow.claimShadowWitness({
+      requestId:executionRequestId,organizationId,actorId:ADMIN_B
+    })).toBeNull();
+    expect(await shadow.completeShadowWitness({
+      witnessId:claim!.witnessId,organizationId,status:"success",
+      runId:"lg-shadow-synthetic",fingerprint:"a".repeat(64),
+      requiresReapproval:false,securityStatus:"approved",
+      contractStatus:"approved",preflightStatus:"approved"
+    })).toBe(true);
+    expect(await shadow.completeShadowWitness({
+      witnessId:claim!.witnessId,organizationId,status:"rejected",
+      runId:"lg-replay-synthetic",fingerprint:"b".repeat(64),
+      requiresReapproval:true,securityStatus:"rejected",
+      contractStatus:"rejected",preflightStatus:"rejected"
+    })).toBe(false);
+    await expect(db.query(
+      "DELETE FROM public.ai_agent_candidate_shadow_witnesses WHERE id=$1::uuid",
+      [claim!.witnessId]
+    )).rejects.toThrow("candidate_witness_delete_forbidden");
+    const state=await db.query<{
+      status:string;count:string;sql_executed:string|null;
+    }>([
+      "SELECT w.status,",
+      "(SELECT count(*)::text FROM public.ai_agent_candidate_shadow_witnesses) count,",
+      "r.sql_executed FROM public.ai_agent_candidate_shadow_witnesses w",
+      "JOIN public.ai_agent_runs r ON r.id=w.agent_run_id",
+      "WHERE w.id=$1::uuid"
+    ].join(" "),[claim!.witnessId]);
+    expect(state.rows[0]).toEqual({
+      status:"success",count:"1",sql_executed:null
+    });
+    for(const role of ["anon","authenticated","service_role"]){
+      const rights=await db.query<{read:boolean;write:boolean}>(
+        "SELECT has_table_privilege($1,'public.ai_agent_candidate_shadow_witnesses','SELECT') read,"+
+        " has_table_privilege($1,'public.ai_agent_candidate_shadow_witnesses','INSERT') write",
+        [role]
+      );
+      expect(rights.rows[0]).toEqual({read:false,write:false});
+    }
   });
 
   it("does not expose a future execution request to Data API roles",async()=>{
