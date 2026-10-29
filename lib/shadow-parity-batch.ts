@@ -20,6 +20,7 @@ export type ParityOutcome =
   | "structural_match"
   | "structural_difference"
   | "provenance_missing"
+  | "provider_mismatch"
   | "inconclusive"
   | "reapproval_required"
   | "official_sql_missing"
@@ -63,6 +64,7 @@ type Deps = {
 
 const OUTCOMES: ParityOutcome[] = [
   "structural_match", "structural_difference", "provenance_missing",
+  "provider_mismatch",
   "inconclusive", "reapproval_required", "official_sql_missing",
   "official_identity_missing", "cache_ineligible", "shadow_missing",
   "shadow_not_successful", "shadow_ambiguous", "shadow_read_unavailable",
@@ -136,6 +138,10 @@ async function inspectOne(run: SanitizedAgentRun, deps: Deps): Promise<ParityRow
   if (record.status !== "success") {
     return emptyRow(run, "shadow_not_successful");
   }
+  if (record.requires_reapproval) {
+    return { ...emptyRow(run, "reapproval_required"),
+      shadow_record_id: record.shadow_record_id };
+  }
 
   const requestBase = {
     agentRunId: run.id,
@@ -179,7 +185,9 @@ async function inspectOne(run: SanitizedAgentRun, deps: Deps): Promise<ParityRow
   else if (stages.includes("unavailable")) outcome = "comparison_unavailable";
   else if (stages.includes("inconclusive")) outcome = "inconclusive";
   else if (checks.length === 0) outcome = "comparison_unavailable";
-  else if (providerIdentity !== "identifiers_matched" || !attested) {
+  else if (providerIdentity === "identifier_mismatch") {
+    outcome = "provider_mismatch";
+  } else if (providerIdentity !== "identifiers_matched" || !attested) {
     outcome = "provenance_missing";
   } else {
     outcome = "structural_match";
