@@ -44,7 +44,9 @@ beforeEach(()=>{
   mocks.tenant.mockReturnValue({status:"ready",organizationId:ORG});
   mocks.claim.mockResolvedValue({
     witnessId:WITNESS,executionRequestId:REQUEST,organizationId:ORG,
-    agentRunId:RUN,bindingSha256:"b".repeat(64),approvedSql:"SELECT 1"
+    agentRunId:RUN,bindingSha256:"b".repeat(64),approvedSql:"SELECT 1",
+    generationRunId:"original-run-1",generationRequesterId:USER,
+    generationContextVersion:"context-v1",generationResponseFingerprint:"c".repeat(64)
   });
   mocks.complete.mockResolvedValue(true);
   mocks.fetch.mockImplementation(async (_url:string,init:RequestInit)=>{
@@ -82,6 +84,10 @@ describe("Approved SQL Shadow witness is evidence, never execution",()=>{
     expect(envelope.correlation_metadata.execution_request_id).toBe(REQUEST);
     expect(envelope.correlation_metadata.approval_binding_sha256).toBe("b".repeat(64));
     expect(envelope.principal.id).toBe(USER);
+    expect(envelope.correlation_metadata.generation_run_id).toBe("original-run-1");
+    expect(envelope.correlation_metadata.generation_requester_id).toBe(USER);
+    expect(envelope.correlation_metadata.generation_context_version).toBe("context-v1");
+    expect(envelope.correlation_metadata.generation_response_fingerprint).toBe("c".repeat(64));
     expect(mocks.complete).toHaveBeenCalledWith(expect.objectContaining({
       witnessId:WITNESS,status:"success",requiresReapproval:false
     }));
@@ -110,7 +116,7 @@ describe("Approved SQL Shadow witness is evidence, never execution",()=>{
     const {POST}=await import("@/app/api/admin/candidate-execution-requests/[id]/shadow-validate/route");
     mocks.fetch.mockImplementationOnce(async(_url:string,init:RequestInit)=>{
       const q=JSON.parse(String(init.body));
-      return{status:200,json:async()=>({
+      return{status:422,json:async()=>({
         contract_version:"1",execution_request_id:REQUEST,
         agent_run_id:q.agent_run_id,run_id:"langgraph-repair-1",
         status:"rejected",response_fingerprint:"a".repeat(64),
