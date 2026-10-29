@@ -511,6 +511,14 @@ export default function AdminRunsPage() {
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
                 Voltar ao Agente
               </Link>
+              {accountPolicy?.can_manage_users && loggedUser?.profile === "admin" ? (
+                <Link
+                  href="/admin/tenant-onboarding"
+                  className="inline-flex h-10 items-center justify-center rounded-md border border-blue-200 bg-white px-3 text-sm font-semibold text-blue-900"
+                >
+                  Organizações
+                </Link>
+              ) : null}
               {accountPolicy?.can_manage_users ? (
                 <Link
                   href="/admin/users"

@@ -11,6 +11,11 @@ on:
       - "lib/agent-runs.ts"
       - "lib/tenant-identity.ts"
       - "tests/tenant-postgres-integration.test.ts"
+      - "lib/tenant-operator.ts"
+      - "lib/candidate-execution-intent.ts"
+      - "tests/candidate-journey-postgres.test.ts"
+      - "app/api/admin/tenant/**"
+      - "app/api/admin/candidate-reviews/**/execute-request/route.ts"
       - "scripts/validation/seed_tenant_legacy_fixture.sql"
       - ".github/workflows/demo-tenant-postgres-rehearsal.yml"
   push:
@@ -23,6 +28,11 @@ on:
       - "lib/agent-runs.ts"
       - "lib/tenant-identity.ts"
       - "tests/tenant-postgres-integration.test.ts"
+      - "lib/tenant-operator.ts"
+      - "lib/candidate-execution-intent.ts"
+      - "tests/candidate-journey-postgres.test.ts"
+      - "app/api/admin/tenant/**"
+      - "app/api/admin/candidate-reviews/**/execute-request/route.ts"
       - "scripts/validation/seed_tenant_legacy_fixture.sql"
       - ".github/workflows/demo-tenant-postgres-rehearsal.yml"
 
@@ -97,6 +107,8 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -f migrations/2026-10-23-tenant-identity-shadow-runs.sql
           psql -X -v ON_ERROR_STOP=1 -f migrations/2026-10-29-candidate-sql-review-gates.sql
           psql -X -v ON_ERROR_STOP=1 -f migrations/2026-10-29-candidate-sql-review-gates.sql
+          psql -X -v ON_ERROR_STOP=1 -f migrations/2026-10-29-tenant-onboarding-and-execute-intent.sql
+          psql -X -v ON_ERROR_STOP=1 -f migrations/2026-10-29-tenant-onboarding-and-execute-intent.sql
       - name: Prove tenant organization tables are not exposed to Data API roles
         run: |
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
@@ -138,3 +150,32 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f scripts/validation/candidate_review_postgres_smoke.sql
       - name: Test actual tenant sessions, memberships and run boundaries
         run: npm test -- tests/tenant-postgres-integration.test.ts
+
+      - name: Isolate a second real PostgreSQL database for the complete candidate journey
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE tenant_candidate_ci_fixture'
+          for file in \
+            migrations/2026-09-03-base-auth-tables.sql \
+            migrations/2026-07-08-agent-runs.sql \
+            migrations/2026-07-09-agent-run-llm-usage.sql \
+            migrations/2026-07-08-admin-user-management.sql
+          do
+            PGDATABASE=tenant_candidate_ci_fixture psql -X -v ON_ERROR_STOP=1 -f "$file"
+          done
+          PGDATABASE=tenant_candidate_ci_fixture psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          ALTER DEFAULT PRIVILEGES FOR ROLE tenant_ci IN SCHEMA public
+            GRANT ALL ON TABLES TO anon, authenticated, service_role;
+          SQL
+          for file in \
+            migrations/2026-10-23-tenant-identity-shadow-runs.sql \
+            migrations/2026-10-29-candidate-sql-review-gates.sql \
+            migrations/2026-10-29-tenant-onboarding-and-execute-intent.sql
+          do
+            PGDATABASE=tenant_candidate_ci_fixture psql -X -v ON_ERROR_STOP=1 -f "$file"
+          done
+          test "$(PGDATABASE=tenant_candidate_ci_fixture psql -X -v ON_ERROR_STOP=1 -Atc 'SELECT current_database()')" = "tenant_candidate_ci_fixture"
+      - name: End-to-end real PostgreSQL tenant and human approval into execution intent (no financial SQL)
+        env:
+          CANDIDATE_DB_REHEARSAL: "true"
+          DATABASE_URL: postgresql://tenant_ci:local-ci-fixture-only@127.0.0.1:5432/tenant_candidate_ci_fixture
+        run: npm test -- tests/candidate-journey-postgres.test.ts
