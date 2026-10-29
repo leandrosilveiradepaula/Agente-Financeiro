@@ -5,6 +5,7 @@ import { getSessionTenantIdentity } from "@/lib/tenant-identity";
 import {
   getCandidateReview, decideCandidateReview
 } from "@/lib/candidate-sql-review";
+import { getCandidateReviewProgress } from "@/lib/candidate-shadow-witness";
 
 export const runtime = "nodejs";
 type Context = { params: Promise<{ id: string }> };
@@ -38,10 +39,17 @@ export async function GET(_request: Request, context: Context) {
   const id = (await context.params).id;
   try {
     const review = await getCandidateReview({
-      id, organizationId: auth.tenant!.organizationId
+      id, organizationId: auth.tenant!.organizationId,
+      actorId: auth.session!.userId
     });
     if (!review) return reply({ error:"review_not_found" },404);
+    const progress = process.env.AGENT_CANDIDATE_EXECUTION_REQUEST_ENABLED?.trim() === "true"
+      ? await getCandidateReviewProgress({
+        reviewId:id, organizationId:auth.tenant!.organizationId,
+        actorId:auth.session!.userId
+      }) : null;
     return reply({
+      progress,
       success:true, review: {
         id: review.id, agent_run_id: review.agent_run_id,
         organization_id: review.organization_id,
