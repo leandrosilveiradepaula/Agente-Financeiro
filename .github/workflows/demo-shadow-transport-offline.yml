@@ -27,6 +27,7 @@ on:
       - "app/admin/runs/parity-review/page.tsx"
       - "app/admin/runs/page.tsx"
       - "tests/shadow-parity-batch.test.ts"
+      - "tests/shadow-parity-batch-route.test.ts"
       - ".github/workflows/demo-shadow-transport-offline.yml"
   push:
     branches: [demo/grupo-horizonte]
@@ -54,6 +55,7 @@ on:
       - "app/admin/runs/parity-review/page.tsx"
       - "app/admin/runs/page.tsx"
       - "tests/shadow-parity-batch.test.ts"
+      - "tests/shadow-parity-batch-route.test.ts"
       - ".github/workflows/demo-shadow-transport-offline.yml"
 
 permissions:
