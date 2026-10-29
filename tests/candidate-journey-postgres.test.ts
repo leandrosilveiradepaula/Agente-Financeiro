@@ -224,6 +224,24 @@ candidateDb("real operator onboarding and Execute Approved intent (no execution)
     expect(state.rows[0]).toEqual({
       status:"success",count:"1",sql_executed:null
     });
+    const persistedProgress=await shadow.getCandidateReviewProgress({
+      reviewId,organizationId,actorId:ADMIN_B
+    });
+    expect(persistedProgress).toMatchObject({
+      request_id:executionRequestId,
+      state:"pending_authorization",
+      witness_status:"success",
+      requires_reapproval:false,
+      preflight_status:"approved",
+      langgraph_run_id:"lg-shadow-synthetic"
+    });
+    expect(JSON.stringify(persistedProgress)).not.toContain(candidateSql);
+    expect(await shadow.getCandidateReviewProgress({
+      reviewId,organizationId:BAD_ORG,actorId:ADMIN_B
+    })).toBeNull();
+    expect(await shadow.getCandidateReviewProgress({
+      reviewId,organizationId,actorId:FOREIGN
+    })).toBeNull();
     for(const role of ["anon","authenticated","service_role"]){
       const rights=await db.query<{read:boolean;write:boolean}>(
         "SELECT has_table_privilege($1,'public.ai_agent_candidate_shadow_witnesses','SELECT') read,"+
