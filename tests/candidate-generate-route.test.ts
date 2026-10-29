@@ -51,7 +51,7 @@ beforeEach(() => {
     const sent=JSON.parse(String(init.body));
     return {status:200,json:async()=>({
       contract_version:"1",agent_run_id:sent.agent_run_id,run_id:"lg-1",
-      status:"success",sql:"SELECT 1",preflight:{status:"approved",executed:false},
+      status:"success",sql:"SELECT 1",gates:{security:{status:"approved",executed:false},contract:{status:"approved",executed:false}},preflight:{status:"approved",executed:false},
       metadata:{context_version:"sem-v1"},
       response_fingerprint:"a".repeat(64),
       requires_human_approval:true,real_sql_executed:false
@@ -95,6 +95,30 @@ describe("generate-only candidate route",()=>{
     mocks.shadow.mockReturnValue({selection:{...model,model_key:"other"}});
     expect((await POST(request())).status).toBe(503);
     expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+  it("rejects missing security or contract approval without persistence",async()=>{
+    const {POST}=await import("@/app/api/admin/candidate-generate/route");
+    for (const gates of [
+      undefined,
+      {security:{status:"approved"},contract:{status:"not_run"}},
+      {security:{status:"rejected"},contract:{status:"approved"}},
+      {security:{status:"approved",executed:true},contract:{status:"approved"}}
+    ]) {
+      mocks.fetch.mockImplementationOnce(async (_url:string,init:RequestInit)=>{
+        const sent=JSON.parse(String(init.body));
+        return {status:200,json:async()=>({
+          contract_version:"1",agent_run_id:sent.agent_run_id,run_id:"lg-1",
+          status:"success",sql:"SELECT 1",gates,
+          metadata:{context_version:"sem-v1"},preflight:{status:"approved",executed:false},
+          response_fingerprint:"a".repeat(64),requires_human_approval:true,
+          real_sql_executed:false
+        })};
+      });
+      const res=await POST(request());
+      expect(res.status).toBe(502);
+      expect((await res.json()).error).toBe("candidate_sql_invalid");
+    }
+    expect(mocks.persist).not.toHaveBeenCalled();
   });
   it("fails closed when persisted review is unavailable",async()=>{
     mocks.persist.mockRejectedValueOnce(new Error("SQL/secret should never leak"));
