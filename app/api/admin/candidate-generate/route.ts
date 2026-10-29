@@ -137,7 +137,15 @@ export async function POST(request: Request) {
         real_sql_executed: false
       }, { status: 422, headers: { "Cache-Control": "no-store" } });
     }
-    if (output.preflight.status !== "approved" ||
+    // Success is not sufficient: independently attest all three SQL gates.
+    // Missing or unapproved evidence must never become a pending review.
+    const approvedGate = (gate: unknown) =>
+      isRecord(gate) && gate.status === "approved" && gate.executed !== true;
+    if (!isRecord(output.gates) ||
+      !approvedGate(output.gates.security) ||
+      !approvedGate(output.gates.contract) ||
+      !approvedGate(output.preflight) ||
+      output.preflight.executed !== false ||
       typeof output.sql !== "string" || !output.sql.trim() ||
       output.sql.length > 262144) return failure("candidate_sql_invalid", 502);
 
