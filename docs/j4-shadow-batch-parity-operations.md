@@ -17,7 +17,7 @@ identificadores Shadow ou listas de benchmark vindos da URL/browser.
 
 Para cada registro:
 
-1. Rejeitar SQL ou principal ausentes; classificar cache sem execução Gemini
+1. Verificar primeiro a origem operacional registrada pelo BFF (`source=interface`, `metadata.operation=generate_sql`, `execution_status=generated|executed`); candidatos LangGraph, testes P2 e registros ambíguos NÃO são baselines oficiais. Esta marcação comprova apenas o caminho BFF, não o provedor/modelo ou paridade financeira. Depois, rejeitar SQL ou principal ausentes; classificar cache sem execução Gemini
    independente como inelegível.
 2. Listar as tentativas Shadow pelo `agent_run_id` oficial autorizado;
    negar seleção de uma entre múltiplas gerações (ou páginas saturadas).
@@ -60,3 +60,7 @@ Para cada registro:
 4. Validar falha isolada do Shadow e rollback antes de cutover humano.
 
 Este bloco torna **operável a avaliação em lote**, não conclui J4 por si só.
+
+## Evidência atual e próximo gate (29/10/2026)
+
+Auditoria read-only na DEMO: 41 registros históricos `source=interface`, 38 executados com SQL, todos sem provedor/modelo atestado, e 1 `shadow_p2_generate_only` com recibo de transporte, mas sem SQL oficial. Nenhum registro está vinculado à organização ativa. Há 0 propostas candidatas persistidas. **Não existe par oficial+Shadow com identidade e contexto completos para P3**: marcar `official_origin_unverified` para origem desconhecida ou candidata, e **não** forçar backfill nem inferir modelo/tenant do legado. A criação de novo par exige uma operação canário autorizada para a mesma pergunta/tenant, mantendo execução financeira bloqueada e preços de LLM sob gate separado. A paridade numérica continua sujeita a autorização própria para duas consultas SELECT em snapshot igual.

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 type Outcome =
+  | "official_origin_unverified"
   | "structural_match" | "structural_difference" | "provenance_missing"
   | "inconclusive" | "provider_mismatch" | "reapproval_required" | "official_sql_missing"
   | "official_identity_missing" | "cache_ineligible" | "shadow_missing"
@@ -33,6 +34,7 @@ type ReviewReport = {
   real_sql_executed: false;
 };
 const LABELS: Record<Outcome, string> = {
+  official_origin_unverified: "Origem oficial n8n não comprovada",
   structural_match: "SQL estruturalmente correspondente",
   structural_difference: "Divergência estrutural",
   provenance_missing: "Proveniência não comprovada",
@@ -166,7 +168,7 @@ export default function BatchParityReviewPage() {
               ))}</tbody>
             </table>
           </section>
-          <p className="text-xs text-steel">Exibindo {offset + 1}–{offset + data.sample_count} de {data.total_official_runs} execuções oficiais. Nenhuma SQL ou pergunta é exposta neste relatório.</p>
+          <p className="text-xs text-steel">Exibindo {offset + 1}–{offset + data.sample_count} de {data.total_official_runs} registros históricos. Nenhuma SQL ou pergunta é exposta neste relatório.</p>
         </>
       )}
     </main>

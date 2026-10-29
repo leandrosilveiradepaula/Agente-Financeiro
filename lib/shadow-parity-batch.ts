@@ -1,4 +1,5 @@
 import "server-only";
+import { assessRecordedOfficialSqlRunOrigin } from "@/lib/official-sql-run-origin";
 
 import type { SanitizedAgentRun } from "@/lib/agent-runs";
 import {
@@ -17,6 +18,7 @@ import type { ShadowRunSummary } from "@/lib/types";
 // Uses previously persisted official SQL and persisted Shadow evidence.
 // Absolutely no generation, repair, approval, execution or benchmark intake.
 export type ParityOutcome =
+  | "official_origin_unverified"
   | "structural_match"
   | "structural_difference"
   | "provenance_missing"
@@ -63,6 +65,7 @@ type Deps = {
 };
 
 const OUTCOMES: ParityOutcome[] = [
+  "official_origin_unverified",
   "structural_match", "structural_difference", "provenance_missing",
   "provider_mismatch",
   "inconclusive", "reapproval_required", "official_sql_missing",
@@ -105,6 +108,9 @@ function isAttested(result: ShadowSqlComparison): boolean {
 }
 
 async function inspectOne(run: SanitizedAgentRun, deps: Deps): Promise<ParityRow> {
+  if (assessRecordedOfficialSqlRunOrigin(run) !== "recorded_official_path") {
+    return emptyRow(run, "official_origin_unverified");
+  }
   const officialSql = run.sql_generated?.trim() || null;
   const executedSql = run.sql_executed?.trim() || null;
   if (!officialSql && !executedSql) return emptyRow(run, "official_sql_missing");
