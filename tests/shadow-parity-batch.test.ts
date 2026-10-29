@@ -26,6 +26,9 @@ const comparable = {
 
 const run = {
   id: "official-a",
+  source: "interface",
+  metadata: { operation: "generate_sql" },
+  execution_status: "executed",
   pergunta: "Question that has never appeared in a prompt",
   user_id: "user-a",
   organization_id: "tenant-a",
@@ -65,6 +68,23 @@ describe("historical product Shadow batch evaluation", () => {
     }));
     expect(JSON.stringify(result)).not.toContain("schema_x.data_x");
     expect(JSON.stringify(result)).not.toContain("Question that has never appeared");
+  });
+
+  it("never treats a LangGraph candidate, P2 trial or unknown legacy origin as the official SQL", async () => {
+    for (const alternate of [
+      { source: "candidate_langgraph_generate_only" },
+      { source: "shadow_p2_generate_only" },
+      { source: null },
+      { metadata: { operation: "shadow_generate_only" } },
+      { metadata: null },
+      { execution_status: "pending" }
+    ]) {
+      const deps = services();
+      const report = await inspectParityBatch([{ ...run, ...alternate }] as never, deps as never);
+      expect(report.cases[0].outcome).toBe("official_origin_unverified");
+      expect(deps.list).not.toHaveBeenCalled();
+      expect(deps.compare).not.toHaveBeenCalled();
+    }
   });
 
   it("does not select the best attempt from duplicated or truncated evidence", async () => {
