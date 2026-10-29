@@ -5,7 +5,7 @@ import { useState } from "react";
 
 type Outcome =
   | "structural_match" | "structural_difference" | "provenance_missing"
-  | "inconclusive" | "reapproval_required" | "official_sql_missing"
+  | "inconclusive" | "provider_mismatch" | "reapproval_required" | "official_sql_missing"
   | "official_identity_missing" | "cache_ineligible" | "shadow_missing"
   | "shadow_not_successful" | "shadow_ambiguous" | "shadow_read_unavailable"
   | "comparison_unavailable";
@@ -36,6 +36,7 @@ const LABELS: Record<Outcome, string> = {
   structural_match: "SQL estruturalmente correspondente",
   structural_difference: "Divergência estrutural",
   provenance_missing: "Proveniência não comprovada",
+  provider_mismatch: "Provedor/modelo divergente",
   inconclusive: "Comparação inconclusiva",
   reapproval_required: "Reparo exige nova aprovação",
   official_sql_missing: "SQL oficial não registrada",
