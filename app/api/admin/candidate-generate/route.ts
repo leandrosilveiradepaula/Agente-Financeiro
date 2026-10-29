@@ -7,6 +7,7 @@ import {
   resolveLlmSelection
 } from "@/lib/llm-provider-registry";
 import { isShadowPhaseOneProviderMatch } from "@/lib/shadow-phase-gate";
+import { persistCandidateReview } from "@/lib/candidate-sql-review";
 
 export const runtime = "nodejs";
 
@@ -43,9 +44,8 @@ export async function POST(request: Request) {
     return failure("candidate_disabled", 404);
   }
   const tenant = getSessionTenantIdentity(session);
-  if (tenant.status === "required") return failure("tenant_identity_required", 403);
-  if (tenant.status === "ready" &&
-      process.env.AGENT_CANDIDATE_AUTHORIZED_ORGANIZATION_ID?.trim()?.toLowerCase() !==
+  if (tenant.status !== "ready") return failure("tenant_identity_required", 403);
+  if (process.env.AGENT_CANDIDATE_AUTHORIZED_ORGANIZATION_ID?.trim()?.toLowerCase() !==
       tenant.organizationId.toLowerCase()) {
     return failure("tenant_scope_unavailable", 503);
   }
@@ -93,7 +93,7 @@ export async function POST(request: Request) {
     principal: {
       id: session.userId,
       profile: session.userProfile,
-      ...(tenant.status === "ready" ? { organization_id: tenant.organizationId } : {})
+      organization_id: tenant.organizationId
     },
     llm_selection: selected,
     correlation_metadata: {
@@ -141,13 +141,30 @@ export async function POST(request: Request) {
       typeof output.sql !== "string" || !output.sql.trim() ||
       output.sql.length > 262144) return failure("candidate_sql_invalid", 502);
 
-    // Read-only presentation: no SQL persistence or approval in the product,
-    // no call to the legacy execution route and no implicit cutover.
+    const contextVersion = isRecord(output.metadata) &&
+      typeof output.metadata.context_version === "string"
+      ? output.metadata.context_version : "";
+    let review;
+    try {
+      review = await persistCandidateReview({
+        agentRunId, requestId, organizationId: tenant.organizationId,
+        requesterId: session.userId, question: body.pergunta.trim(),
+        sql: output.sql, langgraphRunId: output.run_id,
+        contextVersion, responseFingerprint: output.response_fingerprint,
+        model: selected
+      });
+    } catch {
+      // Never return an untracked SQL proposal or pretend approval storage
+      // succeeded. Failed persistence must block the whole candidate result.
+      return failure("candidate_review_persistence_unavailable", 503);
+    }
+    // SQL is review-only. No Execute Approved call or privilege enlargement.
     return NextResponse.json({
+      review_id: review.id, sql_sha256: review.sql_sha256,
+      binding_sha256: review.binding_sha256, review_status: "pending",
       success: true, agent_run_id: agentRunId, run_id: output.run_id,
       sql: output.sql, intent: typeof output.intent === "string" ? output.intent : null,
-      context_version: isRecord(output.metadata) && typeof output.metadata.context_version === "string"
-        ? output.metadata.context_version : null,
+      context_version: contextVersion,
       requires_human_approval: true,
       real_sql_executed: false
     }, { headers: { "Cache-Control": "no-store" } });

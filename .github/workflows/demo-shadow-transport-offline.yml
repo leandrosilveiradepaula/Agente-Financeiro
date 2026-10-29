@@ -31,6 +31,11 @@ on:
       - "app/api/admin/candidate-generate/route.ts"
       - "app/admin/candidate-generate/page.tsx"
       - "tests/candidate-generate-route.test.ts"
+      - "lib/candidate-sql-review.ts"
+      - "tests/candidate-sql-review.test.ts"
+      - "app/api/admin/candidate-reviews/[id]/route.ts"
+      - "app/admin/candidate-reviews/[id]/page.tsx"
+      - "app/api/execute-watson/route.ts"
       - "app/admin/runs/page.tsx"
       - ".github/workflows/demo-shadow-transport-offline.yml"
   push:
@@ -63,6 +68,11 @@ on:
       - "app/api/admin/candidate-generate/route.ts"
       - "app/admin/candidate-generate/page.tsx"
       - "tests/candidate-generate-route.test.ts"
+      - "lib/candidate-sql-review.ts"
+      - "tests/candidate-sql-review.test.ts"
+      - "app/api/admin/candidate-reviews/[id]/route.ts"
+      - "app/admin/candidate-reviews/[id]/page.tsx"
+      - "app/api/execute-watson/route.ts"
       - "app/admin/runs/page.tsx"
       - ".github/workflows/demo-shadow-transport-offline.yml"
 

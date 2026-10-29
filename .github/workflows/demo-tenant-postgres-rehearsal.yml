@@ -5,6 +5,8 @@ on:
     branches: [demo/grupo-horizonte]
     paths:
       - "migrations/**"
+      - "lib/candidate-sql-review.ts"
+      - "scripts/validation/candidate_review_postgres_smoke.sql"
       - "lib/auth/session-service.ts"
       - "lib/agent-runs.ts"
       - "lib/tenant-identity.ts"
@@ -15,6 +17,8 @@ on:
     branches: [demo/grupo-horizonte]
     paths:
       - "migrations/**"
+      - "lib/candidate-sql-review.ts"
+      - "scripts/validation/candidate_review_postgres_smoke.sql"
       - "lib/auth/session-service.ts"
       - "lib/agent-runs.ts"
       - "lib/tenant-identity.ts"
@@ -91,6 +95,8 @@ jobs:
         run: |
           psql -X -v ON_ERROR_STOP=1 -f migrations/2026-10-23-tenant-identity-shadow-runs.sql
           psql -X -v ON_ERROR_STOP=1 -f migrations/2026-10-23-tenant-identity-shadow-runs.sql
+          psql -X -v ON_ERROR_STOP=1 -f migrations/2026-10-29-candidate-sql-review-gates.sql
+          psql -X -v ON_ERROR_STOP=1 -f migrations/2026-10-29-candidate-sql-review-gates.sql
       - name: Prove tenant organization tables are not exposed to Data API roles
         run: |
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
@@ -128,5 +134,7 @@ jobs:
             fi
           done
           echo "TENANT_MEMBERSHIP_PUBLIC_ACCESS=DENIED"
+      - name: Prove candidate immutability, review state transition, RLS and no Data API exposure
+        run: psql -X -v ON_ERROR_STOP=1 -f scripts/validation/candidate_review_postgres_smoke.sql
       - name: Test actual tenant sessions, memberships and run boundaries
         run: npm test -- tests/tenant-postgres-integration.test.ts
