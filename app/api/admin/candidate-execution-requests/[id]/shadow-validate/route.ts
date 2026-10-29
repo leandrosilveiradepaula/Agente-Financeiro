@@ -93,11 +93,15 @@ export async function POST(request:Request,context:Context){
           timestamp:new Date().toISOString(),
           request_id:correlation,
           execution_request_id:claim.executionRequestId,
-          approval_binding_sha256:claim.bindingSha256
+          approval_binding_sha256:claim.bindingSha256,
+          generation_run_id:claim.generationRunId,
+          generation_requester_id:claim.generationRequesterId,
+          generation_context_version:claim.generationContextVersion,
+          generation_response_fingerprint:claim.generationResponseFingerprint
         }
       })
     });
-    if(upstream.status!==200)throw Error("witness_upstream_invalid");
+    if(upstream.status!==200&&upstream.status!==422)throw Error("witness_upstream_invalid");
     const data:unknown=await upstream.json();
     if(!isObject(data)||data.contract_version!=="1"||
        data.agent_run_id!==claim.agentRunId||
@@ -107,6 +111,7 @@ export async function POST(request:Request,context:Context){
        !SHA.test(data.response_fingerprint)||
        data.real_sql_executed!==false||
        data.financial_parity_proven!==false||
+       (upstream.status===200)!==(data.status==="success")||
        !["success","rejected"].includes(String(data.status))||
        typeof data.requires_reapproval!=="boolean"||
        !isObject(data.validation)||
