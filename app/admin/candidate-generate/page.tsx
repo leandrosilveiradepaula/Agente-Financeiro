@@ -11,6 +11,9 @@ type Result = {
   intent?: string | null;
   context_version?: string | null;
   error?: string;
+  review_id?: string;
+  review_status?: "pending" | "approved" | "rejected";
+  sql_sha256?: string;
 };
 
 export default function CandidateGeneratePage() {
@@ -83,9 +86,17 @@ export default function CandidateGeneratePage() {
           <p className="text-xs text-steel">
             Agent run: {result.agent_run_id} — LangGraph run: {result.run_id}
           </p>
+          <p className="text-sm">Estado da proposta: {result.review_status || "não persistida"}.</p>
+          {result.review_id && (
+            <Link className="inline-flex rounded-md border px-4 py-2 font-semibold"
+              href={"/admin/candidate-reviews/" + encodeURIComponent(result.review_id)}>
+              Abrir revisão humana
+            </Link>
+          )}
           <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
-            Sem aprovação persistida. A SQL não pode ser executada nesta tela.
-            Qualquer reparo ou modificação exige nova validação e aprovação.
+            A revisão exige outro administrador autorizado no mesmo tenant.
+            Mesmo após aprovação, a execução financeira permanece bloqueada.
+            Qualquer reparo exige uma nova geração e nova aprovação.
           </p>
         </section>
       )}
