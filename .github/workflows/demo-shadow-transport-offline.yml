@@ -22,6 +22,11 @@ on:
       - "tests/langgraph-shadow-admin-routes.test.ts"
       - "tests/demo-interface-contract.test.ts"
       - ".env.example"
+      - "lib/shadow-parity-batch.ts"
+      - "app/api/admin/runs/parity-review/route.ts"
+      - "app/admin/runs/parity-review/page.tsx"
+      - "app/admin/runs/page.tsx"
+      - "tests/shadow-parity-batch.test.ts"
       - ".github/workflows/demo-shadow-transport-offline.yml"
   push:
     branches: [demo/grupo-horizonte]
@@ -44,6 +49,11 @@ on:
       - "tests/demo-interface-contract.test.ts"
       - "docs/shadow-parallel-n8n-g1.md"
       - ".env.example"
+      - "lib/shadow-parity-batch.ts"
+      - "app/api/admin/runs/parity-review/route.ts"
+      - "app/admin/runs/parity-review/page.tsx"
+      - "app/admin/runs/page.tsx"
+      - "tests/shadow-parity-batch.test.ts"
       - ".github/workflows/demo-shadow-transport-offline.yml"
 
 permissions:
