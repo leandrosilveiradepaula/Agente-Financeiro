@@ -122,6 +122,29 @@ describe("review route authorization and independent decision", () => {
     }),context)).status).toBe(400);
     expect(mocks.query).not.toHaveBeenCalled();
   });
+  it("recovers only tenant-scoped persistent review progress",async()=>{
+    const {GET}=await import("@/app/api/admin/candidate-reviews/[id]/route");
+    mocks.query.mockResolvedValue({rowCount:1,rows:[{
+      id:reviewId,agent_run_id:run,organization_id:org,requested_by:requester,
+      sql_text:"synthetic sql",sql_sha256:"a".repeat(64),
+      binding_sha256:"b".repeat(64),review_status:"approved"
+    }]});
+    mocks.progress.mockResolvedValue({
+      request_id:"00000000-0000-4000-8000-000000000010",
+      state:"pending_authorization",witness_status:"unavailable",
+      requires_reapproval:false,preflight_status:null,langgraph_run_id:null
+    });
+    const res=await GET(routeRequest("GET"),context);
+    expect(res.status).toBe(200);
+    const data=await res.json();
+    expect(data.progress.witness_status).toBe("unavailable");
+    expect(mocks.progress).toHaveBeenCalledWith({
+      reviewId,organizationId:org,actorId:reviewer
+    });
+    expect(JSON.stringify(data.progress)).not.toContain("synthetic sql");
+    expect(mocks.query.mock.calls[0][1]).toContain(reviewer);
+  });
+
   it("persists exact digest transition and returns no SQL/execution authorization",async()=>{
     const {POST}=await import("@/app/api/admin/candidate-reviews/[id]/route");
     mocks.query.mockResolvedValue({rowCount:1,rows:[{
