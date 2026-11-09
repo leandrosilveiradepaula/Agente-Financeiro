@@ -89,7 +89,12 @@ describe("Admin SQL comparison read boundary", () => {
       "utf8"
     );
     expect(listRoute).toContain("shadow_enabled: isLangGraphShadowDispatchConfigured()");
-    expect(panel).toContain("data.shadow_enabled === true && attempt < 12");
+    expect(panel).toContain("pollForEvidence = false");
+    expect(panel).toContain(
+      "const waitingForShadow = (data.shadow_enabled === true || pollForEvidence) &&"
+    );
+    expect(panel).toContain("attempt < 12");
+    expect(panel).toContain("}, [agentRunId, pollForEvidence]);");
     expect(panel).toContain("loadShadowRuns(attempt + 1)");
     expect(panel).toContain("if (retryTimer) clearTimeout(retryTimer)");
     expect(panel).toContain("Aguardando evidencias do Shadow");
