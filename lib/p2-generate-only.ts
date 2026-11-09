@@ -2,6 +2,7 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import type { AgentSession } from "@/lib/auth/auth-types";
+import { db } from "@/lib/db";
 import { createAgentRun, recordShadowDispatchReceipt } from "@/lib/agent-runs";
 import {
   buildLangGraphShadowPrincipal,
@@ -17,6 +18,7 @@ import { AGENT_VERSION } from "@/lib/types";
 // execute-approved, SQL execution, a repair endpoint or a financial database.
 // Default-off, independently enabled only for the controlled P2 demonstration.
 type RecordInput = Record<string, unknown>;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function response(body: RecordInput, status: number) {
   return NextResponse.json(body, {
@@ -71,21 +73,20 @@ export async function handleP2GenerateOnly(
   if (tenant.status === "required") {
     return response({ success: false, error: "tenant_identity_required" }, 403);
   }
-  if (tenant.status === "ready") {
-    // Explicit one-tenant boundary for the first canary. Membership alone
-    // cannot attest that the LangGraph context belongs to that organization.
-    const expected = process.env.LANGGRAPH_P2_AUTHORIZED_ORGANIZATION_ID?.trim();
-    if (!expected || expected.toLowerCase() !== tenant.organizationId.toLowerCase()) {
-      return response({ success: false, error: "p2_tenant_scope_unavailable" }, 503);
-    }
-  } else if (process.env.AGENT_INTERFACE_MODE?.trim().toLowerCase() !== "demo") {
+  if (tenant.status === "disabled" &&
+      process.env.AGENT_INTERFACE_MODE?.trim().toLowerCase() !== "demo") {
     return response({ success: false, error: "p2_demo_scope_required" }, 503);
   }
 
-  const principal = buildLangGraphShadowPrincipal(session);
-  if (!principal || !isLangGraphShadowCanaryEligible(principal).allowed) {
-    return response({ success: false, error: "p2_canary_forbidden" }, 403);
+  // The isolated P2 canary must not require enabling global tenant
+  // identity, which would also alter the OFFICIAL n8n financial route.
+  const expectedOrganizationId = process.env.LANGGRAPH_P2_AUTHORIZED_ORGANIZATION_ID?.trim();
+  if (!expectedOrganizationId || !UUID.test(expectedOrganizationId) ||
+      (tenant.status === "ready" &&
+       tenant.organizationId.toLowerCase() !== expectedOrganizationId.toLowerCase())) {
+    return response({ success: false, error: "p2_tenant_scope_unavailable" }, 503);
   }
+
   const policy = await enforceCanGenerateSql(session.userProfile);
   if (!policy.allowed) {
     return response({ success: false, error: "generation_policy_denied" }, 403);
@@ -96,6 +97,37 @@ export async function handleP2GenerateOnly(
     return response({ success: false, error: "p2_question_invalid" }, 400);
   }
 
+  let organizationId: string | undefined;
+  try {
+    // The binding comes from the authenticated session's active database
+    // membership, never from the body or a free-text organization claim.
+    const member = await db.query<{ organization_id: string }>(`
+      SELECT m.organization_id::text AS organization_id
+      FROM public.ai_agent_user_organizations m
+      JOIN public.ai_agent_organizations o ON o.id = m.organization_id
+      WHERE m.user_id = $1::uuid AND m.organization_id = $2::uuid
+        AND m.is_active = true AND o.is_active = true
+      LIMIT 1
+    `, [session.userId, expectedOrganizationId]);
+    organizationId = member.rows[0]?.organization_id;
+  } catch {
+    return response({ success: false, error: "p2_tenant_membership_unavailable" }, 503);
+  }
+  if (!organizationId || organizationId.toLowerCase() !== expectedOrganizationId.toLowerCase()) {
+    return response({ success: false, error: "p2_tenant_membership_required" }, 403);
+  }
+
+  const basePrincipal = buildLangGraphShadowPrincipal(session);
+  if (!basePrincipal ||
+      (basePrincipal.organization_id &&
+       basePrincipal.organization_id.toLowerCase() !== organizationId.toLowerCase())) {
+    return response({ success: false, error: "p2_tenant_scope_unavailable" }, 503);
+  }
+  const principal = { ...basePrincipal, organization_id: organizationId };
+  if (!isLangGraphShadowCanaryEligible(principal).allowed) {
+    return response({ success: false, error: "p2_canary_forbidden" }, 403);
+  }
+
   let agentRun;
   try {
     agentRun = await createAgentRun({
@@ -103,6 +135,7 @@ export async function handleP2GenerateOnly(
       session,
       pergunta: question,
       source: "shadow_p2_generate_only",
+      authorizedOrganizationId: organizationId,
       metadata: await getRequestMetadata(),
       extraMetadata: {
         operation: "shadow_generate_only",
@@ -129,7 +162,7 @@ export async function handleP2GenerateOnly(
       requestId,
       status: result.status,
       httpStatus: result.httpStatus,
-      ...(tenant.status === "ready" ? { organizationId: tenant.organizationId } : {})
+      organizationId
     });
   } catch {
     // Dispatch may already have reached n8n: return the run ID so the
