@@ -317,6 +317,9 @@ export async function createAgentRun(input: {
   session: AgentSession;
   pergunta: string;
   source?: string;
+  // P2-only scope, verified by the authenticated Product against an active
+  // membership. The OFFICIAL route continues using tenant identity as before.
+  authorizedOrganizationId?: string;
   metadata: RequestMetadata;
   extraMetadata?: Record<string, unknown>;
 }) {
@@ -325,7 +328,18 @@ export async function createAgentRun(input: {
   if (tenant.status === "required") {
     throw new TenantIdentityRequiredError();
   }
-  const persistOrganization = tenant.status === "ready";
+  const explicitOrg = input.authorizedOrganizationId?.trim();
+  if (explicitOrg && (
+    input.source !== "shadow_p2_generate_only" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(explicitOrg) ||
+    (tenant.status === "ready" &&
+     tenant.organizationId.toLowerCase() !== explicitOrg.toLowerCase())
+  )) {
+    throw new Error("verified_organization_scope_mismatch");
+  }
+  const organizationId = tenant.status === "ready"
+    ? tenant.organizationId : explicitOrg;
+  const persistOrganization = Boolean(organizationId);
   const result = await db.query<AgentRunRow>(
     `
     INSERT INTO public.ai_agent_runs (
@@ -354,7 +368,7 @@ export async function createAgentRun(input: {
       input.session.email,
       input.session.name,
       input.session.userProfile,
-      ...(persistOrganization ? [tenant.organizationId] : []),
+      ...(persistOrganization ? [organizationId] : []),
       "database_session",
       input.pergunta,
       normalizeQuestion(input.pergunta),

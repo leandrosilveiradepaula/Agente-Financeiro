@@ -11,7 +11,8 @@ const mocks = vi.hoisted(() => ({
   dispatchGenerateOnly: vi.fn(),
   enforceCanGenerateSql: vi.fn(),
   getRequestMetadata: vi.fn(),
-  getSessionTenantIdentity: vi.fn()
+  getSessionTenantIdentity: vi.fn(),
+  queryDb: vi.fn()
 }));
 
 vi.mock("next/server", () => ({
@@ -40,6 +41,7 @@ vi.mock("@/lib/server-auth", () => ({
 vi.mock("@/lib/tenant-identity", () => ({
   getSessionTenantIdentity: mocks.getSessionTenantIdentity
 }));
+vi.mock("@/lib/db", () => ({ db: { query: mocks.queryDb } }));
 
 import { handleP2GenerateOnly } from "@/lib/p2-generate-only";
 
@@ -51,6 +53,7 @@ const session: AgentSession = {
   userProfile: "admin"
 };
 const runId = "22222222-2222-4222-8222-222222222222";
+const orgId = "33333333-3333-4333-8333-333333333333";
 const question = "Qual foi o montante financeiro realizado no período informado?";
 
 function request(payload: unknown) {
@@ -71,6 +74,8 @@ beforeEach(() => {
   vi.stubEnv("LANGGRAPH_SHADOW_TRANSPORT", "n8n");
   vi.stubEnv("LANGGRAPH_OFFICIAL_VIA_N8N", "false");
   vi.stubEnv("AGENT_INTERFACE_MODE", "demo");
+  vi.stubEnv("LANGGRAPH_P2_AUTHORIZED_ORGANIZATION_ID", orgId);
+  mocks.queryDb.mockResolvedValue({ rows: [{ organization_id: orgId }] });
   mocks.getSessionTenantIdentity.mockReturnValue({ status: "disabled" });
   mocks.buildPrincipal.mockReturnValue({
     id: session.userId,
@@ -108,13 +113,12 @@ describe("P2 isolated authenticated generation-only canary", () => {
   });
 
   it("requires explicit tenant binding for an organization-scoped session", async () => {
-    mocks.getSessionTenantIdentity.mockReturnValue({
-      status: "ready",
-      organizationId: "33333333-3333-4333-8333-333333333333"
-    });
+    mocks.getSessionTenantIdentity.mockReturnValue({ status: "ready", organizationId: orgId });
+    vi.stubEnv("LANGGRAPH_P2_AUTHORIZED_ORGANIZATION_ID", "");
     expect((await handleP2GenerateOnly(request({ pergunta: question }), session, "req")).status).toBe(503);
     vi.stubEnv("LANGGRAPH_P2_AUTHORIZED_ORGANIZATION_ID", "44444444-4444-4444-8444-444444444444");
     expect((await handleP2GenerateOnly(request({ pergunta: question }), session, "req")).status).toBe(503);
+    expect(mocks.queryDb).not.toHaveBeenCalled();
     expect(mocks.dispatchGenerateOnly).not.toHaveBeenCalled();
   });
 
@@ -125,6 +129,42 @@ describe("P2 isolated authenticated generation-only canary", () => {
     mocks.enforceCanGenerateSql.mockResolvedValue({ allowed: false, reason: "denied" });
     expect((await handleP2GenerateOnly(request({ pergunta: question }), session, "req")).status).toBe(403);
     expect(mocks.createAgentRun).not.toHaveBeenCalled();
+  });
+
+  it("blocks missing active membership without writing a run or dispatching", async () => {
+    mocks.queryDb.mockResolvedValue({ rows: [] });
+    const r = await handleP2GenerateOnly(request({ pergunta: question }), session, "req");
+    expect(r.status).toBe(403);
+    expect(mocks.createAgentRun).not.toHaveBeenCalled();
+    expect(mocks.dispatchGenerateOnly).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the membership query is unavailable", async () => {
+    mocks.queryDb.mockRejectedValue(new Error("db unavailable"));
+    const r = await handleP2GenerateOnly(request({ pergunta: question }), session, "req");
+    expect(r.status).toBe(503);
+    expect(mocks.createAgentRun).not.toHaveBeenCalled();
+    expect(mocks.dispatchGenerateOnly).not.toHaveBeenCalled();
+  });
+
+  it("blocks mismatching membership returned by a repository", async () => {
+    mocks.queryDb.mockResolvedValue({
+      rows: [{ organization_id: "44444444-4444-4444-8444-444444444444" }]
+    });
+    const r = await handleP2GenerateOnly(request({ pergunta: question }), session, "req");
+    expect(r.status).toBe(403);
+    expect(mocks.dispatchGenerateOnly).not.toHaveBeenCalled();
+  });
+
+  it("attaches verified organization to the generate-only dispatch", async () => {
+    const r = await handleP2GenerateOnly(request({ pergunta: question }), session, "req");
+    expect(r.status).toBe(202);
+    expect(mocks.dispatchGenerateOnly).toHaveBeenCalledWith(expect.objectContaining({
+      principal: expect.objectContaining({ organization_id: orgId })
+    }));
+    expect(mocks.createAgentRun).toHaveBeenCalledWith(expect.objectContaining({
+      authorizedOrganizationId: orgId
+    }));
   });
 
   it("rejects approved SQL or caller-selected options in a generation-only payload", async () => {
@@ -152,6 +192,7 @@ describe("P2 isolated authenticated generation-only canary", () => {
     expect(mocks.createAgentRun).toHaveBeenCalledWith(expect.objectContaining({
       pergunta: question,
       source: "shadow_p2_generate_only",
+      authorizedOrganizationId: orgId,
       requestId: "request-id",
       session
     }));
@@ -165,7 +206,8 @@ describe("P2 isolated authenticated generation-only canary", () => {
       id: runId,
       event: "generate",
       status: "sent",
-      httpStatus: 202
+      httpStatus: 202,
+      organizationId: orgId
     }));
     expect(JSON.stringify(await r.json())).not.toContain(question);
   });
