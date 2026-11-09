@@ -176,7 +176,13 @@ function getShortId(value: string) {
   return value.length > 12 ? `${value.slice(0, 8)}...${value.slice(-4)}` : value;
 }
 
-export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
+export function ShadowRunPanel({
+  agentRunId,
+  pollForEvidence = false
+}: {
+  agentRunId: string;
+  pollForEvidence?: boolean;
+}) {
   const [listState, setListState] = useState<ShadowListState>({
     status: "loading",
     runs: []
@@ -256,7 +262,8 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
         if (runs.length === 0) {
           // Background generation may still be running; only read evidence.
           // Do not trigger LLM generation, SQL execution, or repair again.
-          const waitingForShadow = data.shadow_enabled === true && attempt < 12;
+          const waitingForShadow = (data.shadow_enabled === true || pollForEvidence) &&
+            attempt < 12;
           setListState({
             status: "empty",
             runs: [],
@@ -291,7 +298,7 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
       if (retryTimer) clearTimeout(retryTimer);
       controller.abort();
     };
-  }, [agentRunId]);
+  }, [agentRunId, pollForEvidence]);
 
   useEffect(() => {
     if (!selectedShadowId) {
@@ -438,7 +445,7 @@ export function ShadowRunPanel({ agentRunId }: { agentRunId: string }) {
             Shadow LangGraph
           </div>
           <p className="mt-1 text-xs font-medium text-steel">
-            Observabilidade read-only correlacionada ao run oficial.
+            Observabilidade read-only correlacionada à execução do Produto.
           </p>
         </div>
         <span className={`w-fit rounded-md border px-2 py-1 text-xs font-semibold ${badgeClass("neutral")}`}>
