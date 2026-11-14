@@ -25,6 +25,15 @@ function forbidden() {
 function unavailable() {
   return response({ success: false, error: "review_unavailable" }, 503);
 }
+function isPinnedG5Owner(userId: string): boolean {
+  const expected = process.env.G5_OWNER_REVIEW_ALLOWED_USER_ID;
+  const tenant = process.env.G5_OWNER_REVIEW_TENANT_ID;
+  return Boolean(
+    expected && tenant && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(expected)
+    && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(tenant)
+    && userId === expected
+  );
+}
 function safeIndex(value: unknown): number | null {
   if (typeof value !== "string" || !/^(0|[1-9][0-9]{0,5})$/.test(value)) return null;
   const index = Number(value);
@@ -74,6 +83,7 @@ export async function GET(request: Request) {
   const { session, response: authResponse } = await requireAdminSession();
   if (authResponse || !session) return authResponse ?? forbidden();
   if (!isG5ReviewEnabled()) return unavailable();
+  if (!isPinnedG5Owner(session.userId)) return forbidden();
   const url = new URL(request.url);
   const kinds = url.searchParams.getAll("kind");
   const indexes = url.searchParams.getAll("index");
@@ -94,6 +104,7 @@ export async function POST(request: Request) {
   const { session, response: authResponse } = await requireAdminSession();
   if (authResponse || !session) return authResponse ?? forbidden();
   if (!isG5ReviewEnabled()) return unavailable();
+  if (!isPinnedG5Owner(session.userId)) return forbidden();
   const origin = request.headers.get("origin");
   const expectedOrigin = process.env.G5_OWNER_REVIEW_WEB_ORIGIN;
   const site = request.headers.get("sec-fetch-site");

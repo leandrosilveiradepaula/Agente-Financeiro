@@ -1,3 +1,22 @@
+## Segurança de tenant e operador — 14/11/2026
+
+A sessão atual de `AgentSession` no Product contém `userId` e
+`userProfile`, mas **não contém uma organização/tenant do usuário**.
+O simples perfil `admin` seria insuficiente para abrir o G5 privado.
+Por isso o BFF agora exige `G5_OWNER_REVIEW_ALLOWED_USER_ID` no
+servidor, exatamente igual ao `session.userId` do operador autorizado,
+além de `G5_OWNER_REVIEW_TENANT_ID` configurado. Caso falte ou divirja,
+responde 403 **antes de qualquer leitura de fonte privada**.
+
+Esta é uma restrição temporária de rollout único por tenant, não
+prova de RBAC multitenant geral. A evolução deve associar formalmente
+sessão e organização no Product, e autorizar cada contexto por tenant
+sem configuração global compartilhada. Não criar `if client == ...`,
+não expor IDs/segredos em cliente e não habilitar sem revisão humana.
+Todos os recursos seguem OFF por padrão, sem deploy.
+
+---
+
 # G5/P3 — Revisão financeira dentro do produto existente (contrato não implantado)
 
 ## Objetivo

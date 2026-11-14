@@ -69,6 +69,8 @@ beforeEach(() => {
     accounting_approved: false, context_activated: false, sql_executed: false
   }});
   vi.stubEnv("G5_OWNER_REVIEW_ENABLED", "true");
+  vi.stubEnv("G5_OWNER_REVIEW_ALLOWED_USER_ID", "operator-1");
+  vi.stubEnv("G5_OWNER_REVIEW_TENANT_ID", "synthetic-tenant-a");
   vi.stubEnv("G5_OWNER_REVIEW_WEB_ORIGIN", "https://app.test.local");
 });
 
@@ -92,6 +94,23 @@ describe("admin G5 owner review Next.js route", () => {
     const response = await GET(new Request("https://app.test.local/api/admin/g5-review"));
     expect(response.status).toBe(503);
     expect(mocks.status).not.toHaveBeenCalled();
+  });
+
+  it("blocks a different admin and absent tenant/owner binding before any private read", async () => {
+    const { GET, POST } = await import("@/app/api/admin/g5-review/route");
+    mocks.requireAdminSession.mockResolvedValue({
+      session: { ...actor, userId: "other-admin" }, response: null
+    });
+    expect((await GET(new Request("https://app.test.local/api/admin/g5-review"))).status).toBe(403);
+    expect((await POST(requestPost(validDecision))).status).toBe(403);
+    mocks.requireAdminSession.mockResolvedValue({ session: actor, response: null });
+    vi.stubEnv("G5_OWNER_REVIEW_ALLOWED_USER_ID", "");
+    expect((await GET(new Request("https://app.test.local/api/admin/g5-review"))).status).toBe(403);
+    vi.stubEnv("G5_OWNER_REVIEW_ALLOWED_USER_ID", "operator-1");
+    vi.stubEnv("G5_OWNER_REVIEW_TENANT_ID", "");
+    expect((await GET(new Request("https://app.test.local/api/admin/g5-review"))).status).toBe(403);
+    expect(mocks.status).not.toHaveBeenCalled();
+    expect(mocks.submit).not.toHaveBeenCalled();
   });
 
   it("reads sanitized status and protected item for the session actor", async () => {
