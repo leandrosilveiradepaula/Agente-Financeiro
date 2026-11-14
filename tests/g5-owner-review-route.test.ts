@@ -11,7 +11,7 @@ vi.mock("next/server", () => ({
   NextResponse: {
     json: (body: unknown, init?: { status?: number; headers?: Record<string, string> }) => ({
       status: init?.status ?? 200,
-      headers: init?.headers ?? {},
+      headers: new Headers(init?.headers ?? {}),
       json: async () => body
     })
   }
