@@ -99,7 +99,7 @@ describe("admin G5 owner review Next.js route", () => {
     const status = await GET(new Request("https://app.test.local/api/admin/g5-review"));
     expect(status.status).toBe(200);
     expect(mocks.status).toHaveBeenCalledWith("operator-1");
-    expect(status.headers["Cache-Control"]).toContain("no-store");
+    expect(status.headers.get("Cache-Control")).toContain("no-store");
     const item = await GET(new Request(
       "https://app.test.local/api/admin/g5-review?kind=financial&index=0"
     ));
@@ -127,11 +127,12 @@ describe("admin G5 owner review Next.js route", () => {
 
   it("requires exact Origin and rejects cross-site writes", async () => {
     const { POST } = await import("@/app/api/admin/g5-review/route");
-    for (const headers of [
+    const invalidHeaders: Record<string, string>[] = [
       { Origin: "https://evil.example" },
       { "Sec-Fetch-Site": "cross-site" },
       { Origin: "" }
-    ]) {
+    ];
+    for (const headers of invalidHeaders) {
       const resp = await POST(requestPost(validDecision, headers));
       expect(resp.status).toBe(403);
     }
@@ -143,7 +144,7 @@ describe("admin G5 owner review Next.js route", () => {
     const resp = await POST(requestPost(validDecision));
     expect(resp.status).toBe(200);
     expect(mocks.submit).toHaveBeenCalledWith("operator-1", validDecision);
-    expect(resp.headers["Cache-Control"]).toContain("no-store");
+    expect(resp.headers.get("Cache-Control")).toContain("no-store");
     expect(await resp.json()).toEqual({
       success: true,
       review: expect.objectContaining({ status: "draft_saved", accounting_approved: false })
