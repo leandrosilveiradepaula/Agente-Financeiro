@@ -1,0 +1,41 @@
+name: G5 owner review offline
+
+on:
+  pull_request:
+    paths:
+      - "lib/g5-owner-review-client.ts"
+      - "app/api/admin/g5-review/**"
+      - "app/admin/g5-review/**"
+      - "tests/g5-owner-review-*.test.ts"
+      - ".github/workflows/g5-owner-review-offline.yml"
+  push:
+    branches: [main]
+    paths:
+      - "lib/g5-owner-review-client.ts"
+      - "app/api/admin/g5-review/**"
+      - "app/admin/g5-review/**"
+      - "tests/g5-owner-review-*.test.ts"
+      - ".github/workflows/g5-owner-review-offline.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  owner-review-contract:
+    name: Authenticated G5 owner review no-network contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install pinned package dependencies
+        run: npm ci --no-audit --no-fund
+      - name: TypeScript validation
+        run: npm run lint
+      - name: Offline review route and client tests
+        run: npm test -- tests/g5-owner-review-client.test.ts tests/g5-owner-review-route.test.ts
